@@ -121,10 +121,23 @@ All generated artifacts live in `output/`:
 
 ## Web viewer (`web/viewer.html` + `web/calculations.js` + `web/echarts.min.js`)
 
-Open `web/viewer.html` directly in a browser — no server and no network needed. All math runs client-side in `web/calculations.js` (ported from `src/eve_mining/`), and eCharts renders the charts:
+### Local (no server needed)
+
+Open `web/viewer.html` directly in a browser — the chart data is computed client-side in `web/calculations.js` (ported from `src/eve_mining/`), and eCharts is bundled locally in `web/echarts.min.js`, so everything works on `file://` with no network.
+
+### GitHub Pages
+
+The repo is deployed to GitHub Pages at:
+
+**https://deveyus.github.io/eve-mining-analysis/web/viewer.html**
+
+Pushes to `main` redeploy automatically.
+
+### What the viewer does
 
 - Pick an ore (or override its isk/m³), toggle MSI on/off
 - Build a fleet by adding rows: booster, miner, count (N) — mix and match any combination
+- Build an ore **composition** (belt mix) by adding ore rows with relative ratios; the blended isk/m³ drives payback
 - Each row plots its own payback curve; a combined "COMBINED fleet" curve sums cost + rate across all rows
 - Dashed vertical lines mark each fleet's payback time; all charts share a consistent x-axis
 - Hover for exact time/profit values
