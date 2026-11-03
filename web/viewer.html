@@ -5,56 +5,155 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>EVE Mining Fleet — Payback Calculator</title>
 <style>
+  :root {
+    --bg-deep: #0a0512;
+    --bg-glow: #221040;
+    --panel: rgba(33, 18, 62, 0.92);
+    --panel-2: rgba(24, 12, 46, 0.92);
+    --line: rgba(168, 85, 247, 0.30);
+    --line-soft: rgba(168, 85, 247, 0.20);
+    --ink: #e9ddfc;
+    --ink-dim: #b9a5e8;
+    --ink-head: #d8b4fe;
+    --neon: #c084fc;
+    --neon-strong: #e879f9;
+    --neon-violet: #a855f7;
+    --best-bg: rgba(217, 70, 239, 0.16);
+    --mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", "Segoe UI Mono", Menlo, Consolas, monospace;
+  }
   * { box-sizing: border-box; }
-  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; background: #f5f5f7; color: #1d1d1f; }
-  header { background: #1d1d1f; color: #fff; padding: 16px 24px; font-size: 18px; font-weight: 600; }
+  html { font-size: 16px; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    margin: 0; font-size: 16px; line-height: 1.45; color: var(--ink);
+    background:
+      radial-gradient(1100px 700px at 75% -10%, var(--bg-glow) 0%, transparent 60%),
+      radial-gradient(900px 600px at -10% 110%, #2a0f3f 0%, transparent 55%),
+      var(--bg-deep);
+    background-attachment: fixed;
+  }
+  header {
+    background: rgba(16, 8, 32, 0.92); color: #f6efff; padding: 18px 26px;
+    font-size: 21px; font-weight: 700; letter-spacing: 0.3px;
+    border-bottom: 1px solid var(--line);
+    text-shadow: 0 0 16px rgba(192, 132, 252, 0.55);
+    box-shadow: 0 2px 24px rgba(147, 51, 234, 0.25);
+  }
 
-  .container { display: flex; flex-direction: column; gap: 16px; padding: 16px 24px; margin: 0 auto; }
+  .container { display: flex; flex-direction: column; gap: 18px; padding: 20px 26px; margin: 0 auto; }
 
   /* Cards */
-  .card { background: #fff; border: 1px solid #e5e5e5; border-radius: 12px; }
-  .card-header { padding: 12px 20px; border-bottom: 1px solid #e5e5e5; font-size: 13px; font-weight: 600; color: #6e6e73; text-transform: uppercase; letter-spacing: 0.4px; }
-  .card-body { padding: 16px 20px; }
+  .card {
+    background: linear-gradient(180deg, var(--panel), var(--panel-2));
+    border: 1px solid var(--line); border-radius: 14px;
+    box-shadow: 0 0 26px rgba(147, 51, 234, 0.15), inset 0 1px 0 rgba(233, 213, 255, 0.07);
+  }
+  .card-header {
+    padding: 13px 22px; border-bottom: 1px solid var(--line-soft);
+    font-size: 14px; font-weight: 700; color: var(--ink-head);
+    text-transform: uppercase; letter-spacing: 1.3px;
+  }
+  .card-body { padding: 18px 22px; }
 
-  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
 
-  .control { display: flex; flex-direction: column; gap: 6px; }
-  .control label { font-size: 12px; font-weight: 600; color: #1d1d1f; }
-  .control input, .control select { font-size: 13px; padding: 8px 10px; border: 1px solid #d2d2d7; border-radius: 8px; background: #fff; color: #1d1d1f; }
-  .control input:focus, .control select:focus { outline: none; border-color: #007aff; }
+  .control { display: flex; flex-direction: column; gap: 7px; }
+  .control label { font-size: 13.5px; font-weight: 600; color: var(--ink); }
+  .control input, .control select {
+    font-size: 15px; padding: 9px 12px; border-radius: 9px; color: var(--ink);
+    border: 1px solid rgba(168, 85, 247, 0.45);
+    background: #170c30; font-family: inherit;
+  }
+  .control input::placeholder { color: #6d5a99; }
+  .control input:focus, .control select:focus {
+    outline: none; border-color: var(--neon);
+    box-shadow: 0 0 0 3px rgba(192, 132, 252, 0.25), 0 0 14px rgba(192, 132, 252, 0.35);
+  }
+  .control select option, .control select optgroup { background: #170c30; color: var(--ink); }
 
-  .checkbox-row { display: flex; align-items: center; gap: 8px; }
-  .checkbox-row input { width: 16px; height: 16px; min-width: 16px; padding: 0; }
+  .checkbox-row { display: flex; align-items: center; gap: 9px; }
+  .checkbox-row input { width: 17px; height: 17px; min-width: 17px; padding: 0; accent-color: var(--neon-strong); }
 
-  .btn-row { display: flex; gap: 10px; margin-top: 8px; }
-  .btn { font-size: 13px; padding: 8px 14px; border: 1px solid #d2d2d7; border-radius: 8px; background: #fff; color: #1d1d1f; cursor: pointer; }
-  .btn:hover { background: #f5f5f7; }
-  .btn-primary { background: #007aff; color: #fff; border-color: #007aff; }
-  .btn-primary:hover { background: #0062cc; }
-  .btn-danger { color: #ff3b30; border-color: #ff3b30; }
-  .btn-danger:hover { background: #ffebee; }
+  .btn-row { display: flex; align-items: center; gap: 12px; margin-top: 10px; flex-wrap: wrap; }
+  .btn {
+    font-size: 14.5px; padding: 9px 16px; border-radius: 9px; cursor: pointer;
+    color: var(--ink); background: rgba(124, 58, 237, 0.12);
+    border: 1px solid rgba(168, 85, 247, 0.5); font-family: inherit;
+  }
+  .btn:hover { background: rgba(124, 58, 237, 0.28); border-color: var(--neon); }
+  .btn-primary {
+    background: linear-gradient(135deg, #7c3aed, #a855f7); color: #fff; border: none;
+    box-shadow: 0 0 16px rgba(168, 85, 247, 0.45); font-weight: 600;
+  }
+  .btn-primary:hover { background: linear-gradient(135deg, #8b5cf6, #b967fc); box-shadow: 0 0 22px rgba(192, 132, 252, 0.6); }
+  .btn-danger { color: #ff6ec7; border-color: rgba(255, 110, 199, 0.6); }
+  .btn-danger:hover { background: rgba(255, 110, 199, 0.14); border-color: #ff6ec7; }
 
   /* Tables */
   .table-wrap { overflow-x: auto; }
-  table.fleet-table { width: 100%; border-collapse: collapse; }
-  table.fleet-table th, table.fleet-table td { border: 1px solid #d2d2d7; padding: 7px 9px; text-align: left; font-size: 13px; }
-  table.fleet-table th { background: #f5f5f7; font-weight: 600; }
-  table.fleet-table td select, table.fleet-table td input { min-width: 100px; width: auto; padding: 5px 8px; }
+  table.fleet-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+  table.fleet-table th, table.fleet-table td {
+    border: 1px solid var(--line-soft); padding: 8px 11px;
+    text-align: left; font-size: 14.5px;
+  }
+  table.fleet-table th {
+    background: rgba(147, 51, 234, 0.16); font-weight: 700;
+    color: var(--ink-head); font-size: 13px; letter-spacing: 0.6px; text-transform: uppercase;
+  }
+  table.fleet-table tbody tr:hover td { background: rgba(147, 51, 234, 0.09); }
+  table.fleet-table td select, table.fleet-table td input {
+    min-width: 110px; width: auto; padding: 6px 9px; font-size: 14px;
+    color: var(--ink); background: #170c30; border: 1px solid rgba(168, 85, 247, 0.4); border-radius: 7px;
+  }
+  table.fleet-table td select option, table.fleet-table td select optgroup { background: #170c30; color: var(--ink); }
+  td.best-cell {
+    background: var(--best-bg) !important;
+    color: #ffffff; font-weight: 700;
+    box-shadow: inset 0 0 0 1.5px rgba(232, 121, 249, 0.8), 0 0 12px rgba(217, 70, 239, 0.35);
+    text-shadow: 0 0 9px rgba(232, 121, 249, 0.65);
+  }
 
   /* Chart */
-  #chart { height: 420px; background: #fff; border: 1px solid #e5e5e5; border-radius: 12px; }
+  #chart { height: 440px; background: rgba(20, 10, 40, 0.6); border: 1px solid var(--line); border-radius: 14px; }
 
   /* Summary */
-  .summary { display: flex; gap: 20px; padding: 12px 20px; background: #fff; border-top: 1px solid #e5e5e5; border-radius: 0 0 12px 12px; }
-  .summary-item { flex: 1; }
-  .summary-item .val { font-size: 17px; font-weight: 600; color: #007aff; }
-  .summary-item .lbl { font-size: 11px; color: #6e6e73; }
+  .summary {
+    display: flex; gap: 24px; padding: 14px 22px; flex-wrap: wrap;
+    background: linear-gradient(180deg, var(--panel), var(--panel-2));
+    border: 1px solid var(--line); border-radius: 14px;
+    box-shadow: 0 0 26px rgba(147, 51, 234, 0.15);
+  }
+  .summary-item { flex: 1; min-width: 160px; }
+  .summary-item .val { font-size: 21px; font-weight: 700; color: var(--neon-strong); text-shadow: 0 0 12px rgba(232, 121, 249, 0.45); font-variant-numeric: tabular-nums; }
+  .summary-item .lbl { font-size: 12.5px; color: var(--ink-dim); letter-spacing: 0.4px; }
 
-  .status { font-size: 12px; font-weight: 500; color: #1d1d1f; margin-left: auto; }
-  .overlay { position: fixed; inset: 0; background: rgba(255,255,255,0.85); display: flex; align-items: center; justify-content: center; z-index: 10; color: #1d1d1f; font-size: 16px; font-weight: 500; display: none; }
-  .blend-badge { display: inline-block; padding: 4px 10px; border-radius: 10px; background: #e3f2fd; color: #007aff; font-size: 12px; font-weight: 600; margin-top: 8px; }
-  .badge-live { display: inline-block; padding: 4px 10px; border-radius: 10px; background: #e8f5e9; color: #2e7d32; font-size: 12px; font-weight: 600; }
-  .val-note { font-size: 11px; color: #6e6e73; margin-top: 8px; }
+  .status { font-size: 13.5px; font-weight: 500; color: var(--ink-dim); margin-left: auto; }
+  .overlay {
+    position: fixed; inset: 0; background: rgba(8, 4, 16, 0.82);
+    display: flex; align-items: center; justify-content: center; z-index: 10;
+    color: #f6efff; font-size: 18px; font-weight: 600; display: none;
+    text-shadow: 0 0 12px rgba(192, 132, 252, 0.6);
+  }
+  .blend-badge {
+    display: inline-block; padding: 5px 12px; border-radius: 11px;
+    background: rgba(147, 51, 234, 0.18); color: var(--ink-head);
+    border: 1px solid var(--line-soft);
+    font-size: 13.5px; font-weight: 600; margin-top: 10px; font-variant-numeric: tabular-nums;
+  }
+  .badge-live {
+    display: inline-block; padding: 5px 12px; border-radius: 11px;
+    background: rgba(52, 211, 153, 0.13); color: #6ee7b7;
+    border: 1px solid rgba(52, 211, 153, 0.45);
+    font-size: 13.5px; font-weight: 600; font-variant-numeric: tabular-nums;
+  }
+  .val-note { font-size: 13px; color: var(--ink-dim); margin-top: 10px; line-height: 1.5; }
+  .filter-row { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; }
+  .filter-row select {
+    font-size: 14px; padding: 7px 11px; border-radius: 8px; color: var(--ink);
+    background: #170c30; border: 1px solid rgba(168, 85, 247, 0.45);
+  }
+  .filter-row .count { font-size: 13px; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+  .hint { font-size: 14px; color: var(--ink-dim); padding: 0 4px; }
 </style>
 </head>
 <body>
@@ -95,7 +194,7 @@
         </div>
         <div class="btn-row">
           <button class="btn btn-primary" id="btnAddRow">+ Add fleet row</button>
-          <button class="btn" id="btnLive">Pull live prices (ESI)</button>
+          <button class="btn" id="btnLive">Pull live prices</button>
           <span id="liveBadge" class="badge-live" style="display:none;"></span>
         </div>
       </div>
@@ -144,17 +243,21 @@
   <div class="card" id="valuationCard">
     <div class="card-header">Ore Valuation — isk per m³ by form</div>
     <div class="card-body">
+      <div class="filter-row">
+        <select id="valFamily"></select>
+        <span class="count" id="valCount"></span>
+      </div>
       <div class="table-wrap">
-        <table class="fleet-table">
+        <table class="fleet-table" id="valTable">
           <thead>
             <tr>
-              <th>Ore</th><th>Raw ore</th><th>Minerals @ <span id="yieldLabel">50</span>% yield</th><th>Compressed (batch)</th>
+              <th>Ore</th><th>Raw ore</th><th>Minerals @ <span id="yieldLabel">50</span>% yield</th><th>Compressed (per m³ hauled)</th>
             </tr>
           </thead>
           <tbody id="valBody"></tbody>
         </table>
       </div>
-      <div class="val-note" id="valNote">Compressed = batch-compressed (the 100:1 hauling form; 1 unit reprocesses as one 100-unit batch). Live columns fill on "Pull live prices" — Jita sell-side via fuzzwork, ESI averages as fallback. ~est = no market price, estimated from raw. * = live price. Overrides in the composition table apply to the raw-ore basis.</div>
+      <div class="val-note" id="valNote">Compressed column: the modern 100:1 hauling form — 1 compressed unit = 1 raw unit, so one m³ of compressed ore is worth ≈100× one m³ of raw (that's the hauling math, not extra profit). Glow = best sell option for that ore, all compared per m³ of mined ore (compressed normalized ÷100). ~ = no market price, estimated at parity. * = live Jita price (sell-side percentile via fuzzwork, ESI averages as fallback). Before your first pull, everything shows the seeded Jita snapshot (<span id="snapDate"></span>). Overrides in the composition table win on every basis.</div>
     </div>
   </div>
 
@@ -170,6 +273,7 @@
 
 </div>
 
+<script src="ore-data.js"></script>
 <script src="calculations.js"></script>
 <script src="echarts.min.js"></script>
 <script>
@@ -194,6 +298,8 @@
   const btnLive = document.getElementById('btnLive');
   const liveBadge = document.getElementById('liveBadge');
   const valBody = document.getElementById('valBody');
+  const valFamily = document.getElementById('valFamily');
+  const valCount = document.getElementById('valCount');
   const yieldLabel = document.getElementById('yieldLabel');
 
   let myChart = null;
@@ -202,15 +308,28 @@
   let liveStore = null; // { ts, prices: {name: isk} } — ores, "Compressed X", minerals
 
   const CALC = window.EVE_MINING_CALC;
+  const FAMILY_ORDER = ['Veldspar','Scordite','Plagioclase','Pyroxeres','Omber','Kernite','Jaspet','Hemorphite','Hedbergite','Gneiss','Dark Ochre','Crokite','Spodumain','Bistot','Mercoxit','Special'];
 
-  function oreOptions(selectEl) {
+  function oreGroupsInOrder() {
+    return FAMILY_ORDER.filter(f => CALC.ORE_FAMILIES[f] && CALC.ORE_FAMILIES[f].length);
+  }
+
+  function fillOreSelect(selectEl, withPrices) {
     selectEl.innerHTML = '';
-    CALC.ORES.forEach(o => {
-      const opt = document.createElement('option');
-      opt.value = o.name;
-      opt.textContent = o.name + ' (' + o.avg_isk_m3.toLocaleString() + ' isk/m³)';
-      selectEl.appendChild(opt);
-    });
+    for (const fam of oreGroupsInOrder()) {
+      const og = document.createElement('optgroup');
+      og.label = fam;
+      for (const name of CALC.ORE_FAMILIES[fam]) {
+        const o = CALC.oreByName(name);
+        const opt = document.createElement('option');
+        opt.value = o.name;
+        opt.textContent = withPrices && o.avg_isk_m3
+          ? o.name + ' (' + Math.round(o.avg_isk_m3).toLocaleString() + ' isk/m³)'
+          : o.name;
+        og.appendChild(opt);
+      }
+      selectEl.appendChild(og);
+    }
   }
 
   function currentCtx() {
@@ -218,7 +337,7 @@
       basis: selBasis.value,
       yieldPct: parseFloat(inpYield.value) || 50,
       livePrices: liveStore ? liveStore.prices : null,
-      mineralPrices: liveStore ? liveStore.prices : null,
+      mineralPrices: liveStore ? liveStore.prices : CALC.MINERAL_SEED_PRICES,
     };
   }
 
@@ -275,7 +394,7 @@
         '<td></td>' +
         '<td></td>' +
         '<td></td>' +
-        '<td><button class="btn btn-danger" style="padding:2px 8px;">×</button></td>';
+        '<td><button class="btn btn-danger" style="padding:2px 10px;">×</button></td>';
 
       const tds = tr.querySelectorAll('td');
       r.refs = { costTd: tds[3], rateTd: tds[4], pbTd: tds[5] };
@@ -343,7 +462,7 @@
         '<td><input type="number" value="' + c.ratio + '" min="0.1" step="0.1"></td>' +
         '<td><input type="number" value="' + (c.iskOverride || '') + '" step="0.1" placeholder="auto"></td>' +
         '<td>' + (isFinite(isk) ? isk.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : '–') + '</td>' +
-        '<td><button class="btn btn-danger" style="padding:2px 8px;">×</button></td>';
+        '<td><button class="btn btn-danger" style="padding:2px 10px;">×</button></td>';
 
       const tds = tr.querySelectorAll('td');
       c.refs = { weightedTd: tds[3] };
@@ -353,9 +472,7 @@
       const ii = tr.querySelectorAll('input')[1];
       const rb = tr.querySelector('button');
 
-      CALC.ORES.forEach(o => {
-        const opt = document.createElement('option'); opt.value = o.name; opt.textContent = o.name; os.appendChild(opt);
-      });
+      fillOreSelect(os, false);
       os.value = c.ore;
 
       os.addEventListener('change', () => { c.ore = os.value; compute(); });
@@ -401,7 +518,7 @@
 
     // Build series
     const series = [];
-    const colors = ['#1f77b4','#ff7f0e','#2ca02c','#d62728','#9467bd','#8c564b','#e377c2','#7f7f7f','#bcbd22','#17becf','#aec7e8','#ffbb78'];
+    const colors = ['#c084fc','#e879f9','#818cf8','#f472b6','#a78bfa','#67e8f9','#f0abfc','#93c5fd','#d8b4fe','#f9a8d4','#8b5cf6','#22d3ee'];
 
     fleetRows.forEach((r, i) => {
       const sp = CALC.seriesPoints(r.booster, r.miner, r.n, isk, withMsi, xMax);
@@ -412,11 +529,11 @@
         showSymbol: false,
         lineWidth: 2,
         itemStyle: { color: colors[i % colors.length] },
-        markLine: sp.pb !== null ? { silent: true, symbol: 'none', label: { show: false }, data: [{ xAxis: sp.pb, lineStyle: { type: 'dashed' } }] } : { silent: true, data: [] },
+        markLine: sp.pb !== null ? { silent: true, symbol: 'none', label: { show: false }, data: [{ xAxis: sp.pb, lineStyle: { type: 'dashed', color: colors[i % colors.length] } }] } : { silent: true, data: [] },
         markPoint: sp.pb !== null ? {
           silent: true, symbol: 'circle', symbolSize: 9,
-          itemStyle: { color: colors[i % colors.length], borderColor: '#fff', borderWidth: 1.5 },
-          label: { show: true, position: 'top', distance: 6, formatter: sp.pb.toFixed(0) + 'm', fontSize: 11, color: colors[i % colors.length] },
+          itemStyle: { color: colors[i % colors.length], borderColor: '#1a0f33', borderWidth: 1.5 },
+          label: { show: true, position: 'top', distance: 6, formatter: sp.pb.toFixed(0) + 'm', fontSize: 12, color: colors[i % colors.length] },
           data: [{ coord: [sp.pb, 0] }],
         } : undefined,
       });
@@ -449,12 +566,12 @@
         data: points,
         showSymbol: false,
         lineWidth: 3,
-        itemStyle: { color: '#000' },
-        markLine: pbFinite ? { silent: true, symbol: 'none', data: [{ xAxis: pb, label: { formatter: 'combined pb ' + pb.toFixed(0) + 'm', position: 'end' }, lineStyle: { type: 'dashed', width: 2 } }] } : { silent: true, data: [] },
+        itemStyle: { color: '#f5eaff' },
+        markLine: pbFinite ? { silent: true, symbol: 'none', data: [{ xAxis: pb, label: { formatter: 'combined pb ' + pb.toFixed(0) + 'm', position: 'end', color: '#e879f9' }, lineStyle: { type: 'dashed', width: 2, color: '#e879f9' } }] } : { silent: true, data: [] },
         markPoint: pbFinite ? {
           silent: true, symbol: 'circle', symbolSize: 10,
-          itemStyle: { color: '#000', borderColor: '#fff', borderWidth: 2 },
-          label: { show: true, position: 'bottom', distance: 6, formatter: pb.toFixed(0) + 'm', fontSize: 11, fontWeight: 'bold', color: '#000' },
+          itemStyle: { color: '#f5eaff', borderColor: '#1a0f33', borderWidth: 2 },
+          label: { show: true, position: 'bottom', distance: 6, formatter: pb.toFixed(0) + 'm', fontSize: 12, fontWeight: 'bold', color: '#f5eaff' },
           data: [{ coord: [pb, 0] }],
         } : undefined,
       });
@@ -480,9 +597,11 @@
       : ctxNow.basis === 'compressed' ? ' (compressed)' : '';
 
     myChart.setOption({
-      title: { text: 'Mining Fleet Payback' + msiLabel + compLabel + basisLabel, left: 'center', textStyle: { fontSize: 16 } },
+      title: { text: 'Mining Fleet Payback' + msiLabel + compLabel + basisLabel, left: 'center', textStyle: { fontSize: 17, color: '#e9d5ff' } },
       tooltip: {
         trigger: 'axis',
+        backgroundColor: '#170c30', borderColor: '#a855f7', borderWidth: 1,
+        textStyle: { color: '#e9ddfc' },
         formatter: function(params) {
           if (!params || params.length === 0) return '';
           const t = params[0].value[0].toFixed(0) + ' min';
@@ -494,17 +613,23 @@
       xAxis: {
         name: 'Time (minutes)',
         nameLocation: 'center', nameGap: 30,
+        nameTextStyle: { color: '#b9a5e8' },
+        axisLine: { lineStyle: { color: '#6d4bb0' } },
+        axisLabel: { color: '#b9a5e8' },
         min: 0, max: xMax,
-        splitLine: { show: true, lineStyle: { color: '#eee' } }
+        splitLine: { show: true, lineStyle: { color: 'rgba(147, 51, 234, 0.18)' } }
       },
       yAxis: {
         name: 'Cumulative profit (M ISK)',
         nameLocation: 'center', nameGap: 50,
+        nameTextStyle: { color: '#b9a5e8' },
+        axisLine: { lineStyle: { color: '#6d4bb0' } },
+        axisLabel: { color: '#b9a5e8' },
         min: yBot < 0 ? Math.floor(yBot * 1.05) : 0,
         max: Math.ceil(yTop * 1.12),
-        splitLine: { show: true, lineStyle: { color: '#eee' } }
+        splitLine: { show: true, lineStyle: { color: 'rgba(147, 51, 234, 0.18)' } }
       },
-      legend: { type: 'scroll', orient: 'horizontal', top: 30 },
+      legend: { type: 'scroll', orient: 'horizontal', top: 30, textStyle: { color: '#d8b4fe' }, pageTextStyle: { color: '#b9a5e8' } },
       series: series,
       animationDuration: 0
     });
@@ -520,7 +645,7 @@
   }
 
   // ---- Ore valuation panel ----
-  const valRefs = {}; // ore name -> {rawTd, minTd, compTd}
+  const valRefs = {}; // ore name -> {rawTd, minTd, compTd, tr}
   function fmtIsk(v) {
     return isFinite(v) ? v.toLocaleString(undefined, { maximumFractionDigits: 0 }) : '–';
   }
@@ -529,12 +654,38 @@
     valBody.innerHTML = '';
     CALC.ORES.forEach(o => {
       const tr = document.createElement('tr');
+      tr.dataset.family = o.family;
       tr.innerHTML = '<td>' + o.name + '</td><td></td><td></td><td></td>';
       const tds = tr.querySelectorAll('td');
-      valRefs[o.name] = { rawTd: tds[1], minTd: tds[2], compTd: tds[3] };
+      valRefs[o.name] = { rawTd: tds[1], minTd: tds[2], compTd: tds[3], tr };
       valBody.appendChild(tr);
     });
+    // family filter
+    valFamily.innerHTML = '';
+    const all = document.createElement('option');
+    all.value = 'all'; all.textContent = 'All ore families';
+    valFamily.appendChild(all);
+    for (const fam of oreGroupsInOrder()) {
+      const opt = document.createElement('option');
+      opt.value = fam; opt.textContent = fam;
+      valFamily.appendChild(opt);
+    }
+    valFamily.addEventListener('change', applyValuationFilter);
+    applyValuationFilter();
     updateValuationCells();
+  }
+
+  function applyValuationFilter() {
+    const fam = valFamily.value;
+    let shown = 0;
+    for (const o of CALC.ORES) {
+      const r = valRefs[o.name];
+      if (!r || !r.tr.isConnected) continue;
+      const show = fam === 'all' || o.family === fam;
+      r.tr.style.display = show ? '' : 'none';
+      if (show) shown++;
+    }
+    valCount.textContent = shown + ' of ' + CALC.ORES.length + ' ore types';
   }
 
   function updateValuationCells() {
@@ -545,18 +696,34 @@
       if (!r || !r.rawTd.isConnected) continue;
       const raw = CALC.effectiveIskPerM3({ ore: o.name, iskOverride: '' }, ctx);
       r.rawTd.textContent = fmtIsk(raw) + (hasLive && isFinite(ctx.livePrices[o.name]) ? ' *' : '');
+
+      let minV = NaN;
       if (CALC.ORE_MINERALS_PER_BATCH[o.name] === null) {
         r.minTd.textContent = 'random content';
       } else {
-        const mv = CALC.mineralValuePerM3(o.name, ctx.yieldPct, ctx.mineralPrices);
-        r.minTd.textContent = isFinite(mv) ? fmtIsk(mv) : '–';
+        minV = CALC.mineralValuePerM3(o.name, ctx.yieldPct, ctx.mineralPrices);
+        r.minTd.textContent = isFinite(minV) ? fmtIsk(minV) : '–';
       }
+
+      let compV = NaN, est = false;
       const cv = CALC.compressedIskPerM3(o.name, ctx.livePrices);
-      if (isFinite(cv)) r.compTd.textContent = fmtIsk(cv);
+      if (isFinite(cv)) compV = cv;
       else {
-        const est = CALC.compressedEstimatePerM3(o.name, raw);
-        r.compTd.textContent = isFinite(est) ? '~' + fmtIsk(est) + ' (est)' : '–';
+        const e = CALC.compressedEstimatePerM3(o.name, raw);
+        if (isFinite(e) && e > 0) { compV = e; est = true; }
       }
+      r.compTd.textContent = isFinite(compV) ? (est ? '~' : '') + fmtIsk(compV) : '–';
+
+      // Best sell option in this row, all normalized to per m³ of mined (raw) ore.
+      const cands = [
+        [raw, r.rawTd],
+        [minV, r.minTd],
+        [compV / CALC.COMPRESSION_RATIO, r.compTd],
+      ].filter(([v]) => isFinite(v) && v > 0);
+      r.rawTd.classList.remove('best-cell');
+      r.minTd.classList.remove('best-cell');
+      r.compTd.classList.remove('best-cell');
+      if (cands.length >= 2) cands.reduce((a, b) => (b[0] > a[0] ? b : a))[1].classList.add('best-cell');
     }
     yieldLabel.textContent = ctx.yieldPct;
   }
@@ -578,11 +745,11 @@
     showStatus('Fetching live prices…');
     const allIds = [];
     for (const [name, tid] of Object.entries(CALC.ORE_TYPE_IDS)) allIds.push({ name, tid, kind: 'ore' });
-    for (const [name, tid] of Object.entries(CALC.BATCH_COMPRESSED_TYPE_IDS)) allIds.push({ name: 'Batch Compressed ' + name, tid, kind: 'batch' });
+    for (const [name, tid] of Object.entries(CALC.COMPRESSED_TYPE_IDS)) allIds.push({ name: 'Compressed ' + name, tid, kind: 'comp' });
     for (const [name, tid] of Object.entries(CALC.MINERALS)) allIds.push({ name, tid, kind: 'mineral' });
     // Raw ore quotes are PER UNIT — convert to isk/m^3 with the ore's unit volume. Minerals and
-    // batch-compressed prices are used per-unit (mineralValuePerM3 / batch volume handle the rest).
-    const toPerM3 = (entry, p) => entry.kind === 'ore'
+    // compressed prices are stored per unit (compressedIskPerM3 / compressedValuePerRawM3 / mineralValuePerM3 divide by volumes).
+    const toStore = (entry, p) => entry.kind === 'ore'
       ? p / (CALC.oreByName(entry.name)?.volume_m3 || 1)
       : p;
     let prices = null, srcLabel = '';
@@ -596,7 +763,7 @@
       for (const entry of allIds) {
         const e = d[String(entry.tid)] ?? d[entry.tid];
         const q = e && e.sell && isFinite(e.sell.percentile) ? e.sell.percentile : NaN;
-        const p = toPerM3(entry, q);
+        const p = toStore(entry, q);
         if (isFinite(p) && p > 0) prices[entry.name] = p;
       }
       if (Object.keys(prices).length < 5) throw new Error('thin fuzzwork response');
@@ -615,7 +782,7 @@
         prices = {};
         for (const entry of allIds) {
           const q = byId.get(entry.tid);
-          const p = isFinite(q) ? toPerM3(entry, q) : NaN;
+          const p = isFinite(q) ? toStore(entry, q) : NaN;
           if (isFinite(p) && p > 0) prices[entry.name] = p;
         }
         srcLabel = 'ESI averages';
@@ -626,12 +793,12 @@
       }
     }
     const nOre = CALC.ORES.filter(o => isFinite(prices[o.name])).length;
-    const nComp = CALC.ORES.filter(o => isFinite(prices['Batch Compressed ' + o.name])).length;
+    const nComp = CALC.ORES.filter(o => isFinite(prices['Compressed ' + o.name])).length;
     const nMin = Object.keys(CALC.MINERALS).filter(m => isFinite(prices[m])).length;
     liveStore = { ts: Date.now(), source: srcLabel, prices };
-    try { localStorage.setItem('emp_live_prices', JSON.stringify(liveStore)); } catch (e) { /* private mode */ }
+    try { localStorage.setItem('emp_live_prices_v2', JSON.stringify(liveStore)); } catch (e) { /* private mode */ }
     applyLive();
-    showStatus('Live prices: ' + nOre + ' ores, ' + nComp + ' batch-compressed, ' + nMin + ' minerals (' + srcLabel + ').');
+    showStatus('Live prices: ' + nOre + ' ores, ' + nComp + ' compressed, ' + nMin + ' minerals (' + srcLabel + ').');
     btnLive.disabled = false;
   }
 
@@ -639,7 +806,8 @@
   function showOverlay(show) { overlay.style.display = show ? 'flex' : 'none'; }
 
   // Wire up controls
-  oreOptions(selOre);
+  fillOreSelect(selOre, true);
+  document.getElementById('snapDate').textContent = CALC.SNAPSHOT_DATE;
   renderValuationTable();
   compositionCard.style.display = chkComp.checked ? 'block' : 'none';
   inpIsk.addEventListener('input', compute);
@@ -671,12 +839,12 @@
   // Restore persisted preferences + last live-price pull
   try { const b = localStorage.getItem('emp_basis'); if (b) selBasis.value = b; } catch (e) { /* private mode */ }
   try { const y = localStorage.getItem('emp_yield'); if (y) inpYield.value = y; } catch (e) { /* private mode */ }
-  try { const s = localStorage.getItem('emp_live_prices'); if (s) liveStore = JSON.parse(s); } catch (e) { /* private mode */ }
+  try { const s = localStorage.getItem('emp_live_prices_v2'); if (s) liveStore = JSON.parse(s); } catch (e) { /* private mode */ }
 
   compute();
   showOverlay(false);
   applyLive();
-  showStatus('Ready. ' + CALC.ORES.length + ' ores × ' + CALC.BOOSTERS.length + ' boosters × ' + CALC.MINERS.length + ' miners.'
+  showStatus('Ready. ' + CALC.ORES.length + ' ores in ' + Object.keys(CALC.ORE_FAMILIES).length + ' groups × ' + CALC.BOOSTERS.length + ' boosters × ' + CALC.MINERS.length + ' miners.'
     + (liveStore ? ' Live prices from ' + new Date(liveStore.ts).toISOString().slice(11, 16) + ' UTC.' : ''));
 })();
 </script>

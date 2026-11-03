@@ -36,69 +36,31 @@ const MINING_RATE = {
 // Mobile Scan Inhibitor: 35 M ISK per hour burn, applied to whole fleet
 const MSI_BURN_ISK_PER_S = 35e6 / 3600.0; // ~9,722.22 isk/s
 
-// Ore data (isk/m^3 = raw ore price / volume), parsed from low_ore.png
-const ORES = [
-  { name: "Dark Ochre", volume_m3: 8, avg_isk_m3: 505, min_isk_m3: 475, max_isk_m3: 550 },
-  { name: "Prismaticite", volume_m3: 40, avg_isk_m3: 1096, min_isk_m3: 1096, max_isk_m3: 1096 },
-  { name: "Gneiss", volume_m3: 5, avg_isk_m3: 484, min_isk_m3: 420, max_isk_m3: 600 },
-  { name: "Crokite", volume_m3: 16, avg_isk_m3: 347, min_isk_m3: 312, max_isk_m3: 381 },
-  { name: "Hemorphite", volume_m3: 3, avg_isk_m3: 301, min_isk_m3: 216, max_isk_m3: 353 },
-  { name: "Hedbergite", volume_m3: 3, avg_isk_m3: 571, min_isk_m3: 250, max_isk_m3: 1133 },
-  { name: "Omber", volume_m3: 0.6, avg_isk_m3: 214, min_isk_m3: 172, max_isk_m3: 248 },
-  { name: "Jaspet", volume_m3: 2, avg_isk_m3: 291, min_isk_m3: 138, max_isk_m3: 450 },
-  { name: "Kernite", volume_m3: 1.2, avg_isk_m3: 395, min_isk_m3: 250, max_isk_m3: 497 },
-  { name: "Pyroxeres", volume_m3: 0.3, avg_isk_m3: 119, min_isk_m3: 93, max_isk_m3: 150 },
-];
+// ---- Ore dataset (generated) ----
+// ore-data.js (loaded before this file) carries the full SDE-verified ore table: every family,
+// every grade variant, modern 100:1 compressed twins, per-batch reprocessing outputs and
+// Jita seed-price snapshots. See scripts/build-ore-data.mjs for provenance.
+const D = (typeof window !== "undefined") ? window.ORE_DATA : null;
+if (!D) throw new Error("ore-data.js missing — load it before calculations.js");
 
-// ---- Verified live-data constants (2026-11-03) ----
-// Sources: TQ SDE typeMaterials via hoboleaks mirror; ESI /universe/types volumes; EVE University
-// Reprocessing + Ore pages (mineral sets cross-checked against SDE, exact match).
-// SDE typeMaterials quantities are PER BATCH OF 100 UNITS (ore batch size = 100).
-const MINERALS = {
-  Tritanium: 34, Pyerite: 35, Mexallon: 36, Isogen: 37,
-  Nocxium: 38, Zydrine: 39, Megacyte: 40, Morphite: 11399,
-};
+const ORES = D.ores;
+const MINERALS = D.minerals;
+const MINERAL_SEED_PRICES = D.mineralSeedPrices;
+const ORE_TYPE_IDS = D.oreTypeIds;
+const ORE_FAMILIES = D.families;
+const SNAPSHOT_DATE = D.snapshotDate;
 
-const ORE_TYPE_IDS = {
-  "Dark Ochre": 1232, "Prismaticite": 90041, "Gneiss": 1229, "Crokite": 1225,
-  "Hemorphite": 1231, "Hedbergite": 21, "Omber": 1227, "Jaspet": 1226,
-  "Kernite": 20, "Pyroxeres": 1224,
-};
-
-// Batch-compressed ore (the 100:1 hauling form produced by structure compression).
-// 1 batch unit = one 100-unit reprocessing batch — SDE typeMaterials of batch types are IDENTICAL
-// to the raw ore's per-batch quantities (verified 2026-11-03). Volumes per ore from ESI /universe/types.
-// Prismaticite has no batch-compressed type (2025 ore) — compressed column falls back to an estimate.
-// Note: the plain "Compressed X" types (625xx) are the old Orca-style 1-unit-per-raw-unit compaction
-// and trade near single-unit parity — NOT the hauling product; deliberately unused.
-const BATCH_COMPRESSED_TYPE_IDS = {
-  "Dark Ochre": 28394, "Gneiss": 28397, "Crokite": 28391, "Hemorphite": 28403,
-  "Hedbergite": 28401, "Omber": 28416, "Jaspet": 28406, "Kernite": 28410, "Pyroxeres": 28424,
-};
-
-const BATCH_COMPRESSED_VOLUME_M3 = {
-  "Dark Ochre": 4.2, "Gneiss": 1.8, "Crokite": 7.81, "Hemorphite": 0.86,
-  "Hedbergite": 0.47, "Omber": 0.3, "Jaspet": 0.15, "Kernite": 0.19, "Pyroxeres": 0.16,
-};
+// Modern compressed ore ("Compressed X" types): the current 100:1 hauling form.
+// 1 compressed unit = 1 raw unit compressed 100x in volume (volume = raw volume / 100);
+// 100 compressed units reprocess as one 100-unit batch with identical outputs.
+const COMPRESSED_TYPE_IDS = D.compressedTypeIds;
+const COMPRESSED_VOLUMES = D.compressedVolumes;
+const SEED_COMPRESSED_PER_UNIT = D.seedCompressedPerUnit;
+const COMPRESSION_RATIO = 100;
 
 // Minerals per batch (100 units). Verified against SDE typeMaterials (exact quantities).
-// Prismaticite = null: random mineral content (Catalyst expansion) — no fixed yield exists.
-const ORE_MINERALS_PER_BATCH = {
-  "Dark Ochre": { Mexallon: 1360, Isogen: 1200, Nocxium: 320 },
-  "Prismaticite": null,
-  "Gneiss": { Pyerite: 2000, Mexallon: 1500, Isogen: 800 },
-  "Crokite": { Pyerite: 800, Mexallon: 2000, Nocxium: 800 },
-  "Hemorphite": { Isogen: 240, Nocxium: 90 },
-  "Hedbergite": { Pyerite: 450, Nocxium: 120 },
-  "Omber": { Pyerite: 90, Isogen: 75 },
-  "Jaspet": { Mexallon: 150, Nocxium: 50 },
-  "Kernite": { Mexallon: 60, Isogen: 120 },
-  "Pyroxeres": { Pyerite: 90, Mexallon: 30 },
-};
-
-// 1 compressed unit = 100 raw units; compressed volume = raw volume / 100
-// (ESI /universe/types: Compressed Gneiss = 0.05 m3, Compressed Dark Ochre = 0.08 m3).
-const COMPRESSION_RATIO = 100;
+// Prismaticite = null: random mineral content — no fixed yield exists.
+const ORE_MINERALS_PER_BATCH = D.oreMineralsPerBatch;
 
 const BOOSTERS = ["Orca", "Porpoise"];
 const MINERS = ["Covetor", "Hulk", "Pioneer", "Alpha Pioneer", "Venture", "Alpha Venture"];
@@ -194,18 +156,24 @@ function effectiveIskPerM3(entry, ctx) {
     const live = ctx.livePrices[ore.name];
     if (isFinite(live) && live > 0) return live;
   }
-  return ore ? ore.avg_isk_m3 : 0;
+  return ore ? (ore.avg_isk_m3 || 0) : 0;
 }
 
 // Value of one m^3 of a given ore under the chosen valuation basis.
-// Falls back to the raw-ore value whenever the requested basis has no usable data.
+// A typed override IS the valuation — it wins on every basis. Otherwise falls back to the
+// raw-ore value whenever the requested basis has no usable data.
 function basisValuePerM3(entry, ctx) {
+  const ore = oreByName(entry.ore);
+  const v = (entry.iskOverride === '' || entry.iskOverride == null)
+    ? NaN
+    : parseFloat(entry.iskOverride);
+  if (isFinite(v)) return v;
   if (ctx && ctx.basis === 'minerals') {
     const mv = mineralValuePerM3(entry.ore, ctx.yieldPct, ctx.mineralPrices);
     if (isFinite(mv)) return mv;
   }
   if (ctx && ctx.basis === 'compressed') {
-    const cv = compressedIskPerM3(entry.ore, ctx.livePrices);
+    const cv = compressedValuePerRawM3(entry.ore, ctx.livePrices);
     if (isFinite(cv)) return cv;
   }
   return effectiveIskPerM3(entry, ctx);
@@ -226,24 +194,43 @@ function mineralValuePerM3(oreName, yieldPct, mineralPrices) {
   return (v * (yieldPct / 100.0)) / (100 * ore.volume_m3);
 }
 
-// Batch-compressed market price expressed per m^3 of compressed ore: isk/m^3 = batch price / batch volume.
-// (1 batch unit = 100 raw units; volumes differ per ore, see BATCH_COMPRESSED_VOLUME_M3.)
-function compressedIskPerM3(oreName, livePrices) {
-  const vol = BATCH_COMPRESSED_VOLUME_M3[oreName];
-  if (!vol) return NaN;
-  const p = livePrices ? livePrices["Batch Compressed " + oreName] : NaN;
-  if (isFinite(p) && p > 0) return p / vol;
-  return NaN;
+// Volume of one unit of the modern compressed form (m^3): raw volume / 100 (uniform 100:1).
+function compressedUnitVolume(oreName) {
+  const v = COMPRESSED_VOLUMES[oreName];
+  if (isFinite(v) && v > 0) return v;
+  const ore = oreByName(oreName);
+  return ore ? ore.volume_m3 / COMPRESSION_RATIO : NaN;
 }
 
-// Estimate when no batch-compressed market price exists: value = 100 raw units' worth spread over
-// the batch volume (or the naive x100 when even the batch volume is unknown, e.g. Prismaticite).
-function compressedEstimatePerM3(oreName, rawIskPerM3) {
-  const vol = BATCH_COMPRESSED_VOLUME_M3[oreName];
+// Compressed-unit price: live pull first, Jita seed snapshot as offline default.
+function compressedUnitPrice(oreName, livePrices) {
+  const live = livePrices ? livePrices["Compressed " + oreName] : NaN;
+  if (isFinite(live) && live > 0) return live;
+  const seed = SEED_COMPRESSED_PER_UNIT[oreName];
+  return isFinite(seed) && seed > 0 ? seed : NaN;
+}
+
+// Value per m^3 OF THE COMPRESSED ORE — the hauling number (what one m^3 in the container is worth).
+function compressedIskPerM3(oreName, livePrices) {
+  const vol = compressedUnitVolume(oreName);
+  const p = compressedUnitPrice(oreName, livePrices);
+  if (!isFinite(vol) || !isFinite(p)) return NaN;
+  return p / vol;
+}
+
+// Value per m^3 OF RAW ORE EQUIVALENT (1 raw unit compresses into 1 unit worth p): p / raw volume.
+// This is the number that belongs in payback math — the fleet mines raw m^3.
+function compressedValuePerRawM3(oreName, livePrices) {
   const ore = oreByName(oreName);
-  if (!ore || !isFinite(rawIskPerM3)) return NaN;
-  if (vol) return (rawIskPerM3 * 100 * ore.volume_m3) / vol;
-  return rawIskPerM3 * 100;
+  const p = compressedUnitPrice(oreName, livePrices);
+  if (!ore || !isFinite(p) || !(ore.volume_m3 > 0)) return NaN;
+  return p / ore.volume_m3;
+}
+
+// Estimate when the compressed form has no market price at all: unit-price parity with raw ore
+// (1 compressed unit = 1 raw unit, so ~ raw unit price per unit = raw isk/m3 x 100 per m^3 hauled).
+function compressedEstimatePerM3(oreName, rawIskPerM3) {
+  return isFinite(rawIskPerM3) ? rawIskPerM3 * COMPRESSION_RATIO : NaN;
 }
 
 function blendComposition(composition, ctx) {
@@ -305,13 +292,14 @@ if (typeof window !== "undefined") {
   window.EVE_MINING_CALC = {
     BOOSTER_COST, MINER_COST, MINING_RATE, MSI_BURN_ISK_PER_S, ORES,
     BOOSTERS, MINERS,
-    MINERALS, ORE_TYPE_IDS, BATCH_COMPRESSED_TYPE_IDS, BATCH_COMPRESSED_VOLUME_M3,
+    MINERALS, MINERAL_SEED_PRICES, ORE_TYPE_IDS, COMPRESSED_TYPE_IDS, ORE_FAMILIES, SNAPSHOT_DATE,
     ORE_MINERALS_PER_BATCH, COMPRESSION_RATIO,
     fleetCost, fleetRate, efficiency, paybackSeconds, paybackMinutes,
     msiBreakEvenIskPerM3, asymptoticEfficiency,
     combinedCost, combinedRate, combinedPaybackSeconds,
     configName, seriesPoints, round2,
     oreByName, effectiveIskPerM3, basisValuePerM3, mineralValuePerM3,
-    compressedIskPerM3, compressedEstimatePerM3, blendComposition, compositionPaybackMinutes,
+    compressedUnitVolume, compressedUnitPrice, compressedIskPerM3, compressedValuePerRawM3,
+    compressedEstimatePerM3, blendComposition, compositionPaybackMinutes,
   };
 }

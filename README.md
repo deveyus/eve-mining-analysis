@@ -123,7 +123,7 @@ All generated artifacts live in `output/`:
 
 ### Local (no server needed)
 
-Open `web/viewer.html` directly in a browser — the chart data is computed client-side in `web/calculations.js` (ported from `src/eve_mining/`), and eCharts is bundled locally in `web/echarts.min.js`, so everything works on `file://` with no network.
+Open `web/viewer.html` directly in a browser — the ore dataset lives in `web/ore-data.js` (generated from the TQ SDE + Jita seed snapshot by `scripts/build-ore-data.mjs`), the chart data is computed client-side in `web/calculations.js` (ported from `src/eve_mining/`), and eCharts is bundled locally in `web/echarts.min.js`, so everything works on `file://` with no network.
 
 ### GitHub Pages
 
@@ -135,11 +135,14 @@ Pushes to `main` redeploy automatically.
 
 ### What the viewer does
 
-- Pick an ore (or override its isk/m³), toggle MSI on/off
+- Pick an ore from **every asteroid-ore family and grade variant** (62 SDE types + Prismaticite, grouped by family), or override its isk/m³ — a typed override wins on every basis; toggle MSI on/off
 - Build a fleet by adding rows: booster, miner, count (N) — mix and match any combination
 - Build an ore **composition** (belt mix) by adding ore rows with relative ratios; the blended isk/m³ drives payback
+- **Pull live prices**: one click fills Jita sell-side prices for all ores, all modern 100:1 compressed types and minerals (fuzzwork aggregates, ESI averages as fallback); live values get a `*`, cached in the browser
+- **Ore Valuation panel**: every ore's isk/m³ as raw | reprocessed minerals @ your yield | compressed (per m³ hauled) side by side, with the best sell option per row glowing; filter by family
+- **Valuation basis** selector (raw / minerals / compressed) drives payback math, blends and the chart — "sell raw or reprocess first" is a toggle, not a guess
 - Each row plots its own payback curve; a combined "COMBINED fleet" curve sums cost + rate across all rows
-- Dashed vertical lines mark each fleet's payback time; all charts share a consistent x-axis
+- Dashed vertical lines mark each fleet's payback time (breakeven markers); all charts share a consistent x-axis
 - Hover for exact time/profit values
 
-Regenerate nothing — edit `web/calculations.js` if you want to change ship costs, rates, or ore values.
+Regenerate the ore dataset with `node scripts/build-ore-data.mjs` (fetches fresh SDE + prices); edit `web/calculations.js` for ship costs and rates.
