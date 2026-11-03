@@ -584,44 +584,56 @@
     const totalRate = CALC.combinedRate(fleetRows);
     const pbCombined = CALC.combinedPaybackSeconds(fleetRows, isk, withMsi) / 60.0;
 
-    // Determine x-axis max
-    let maxPb = 60;
-    for (const r of fleetRows) {
-      const pb = CALC.paybackMinutes(r.booster, r.miner, r.n, isk, withMsi);
-      if (isFinite(pb) && pb > maxPb) maxPb = pb;
+    // Determine x-axis max. With a belt scan in, the graph ends when the belt
+    // is empty (nothing left to mine past that point); otherwise it runs a bit
+    // past the slowest payback so the crossing stays visible.
+    const beltInfo = (beltParsed && beltParsed.items.length) ? beltTotals() : null;
+    const depMin = (beltInfo && beltInfo.totalM3 > 0 && totalRate > 0)
+      ? beltInfo.totalM3 / totalRate / 60
+      : null;
+    let xMax;
+    if (depMin !== null) {
+      xMax = depMin;
+    } else {
+      let maxPb = 60;
+      for (const r of fleetRows) {
+        const pb = CALC.paybackMinutes(r.booster, r.miner, r.n, isk, withMsi);
+        if (isFinite(pb) && pb > maxPb) maxPb = pb;
+      }
+      if (isFinite(pbCombined) && pbCombined > maxPb) maxPb = pbCombined;
+      xMax = maxPb * 1.25;
     }
-    if (isFinite(pbCombined) && pbCombined > maxPb) maxPb = pbCombined;
-    const xMax = maxPb * 1.25;
 
-    // Build series
+    // Build series. Lines are cumulative ore value mined — they start at zero,
+    // never negative. The fleet's total cost is drawn as a horizontal threshold
+    // line: where the combined line reaches it, the fleet has paid for itself.
     const series = [];
     const colors = ['#c084fc','#e879f9','#818cf8','#f472b6','#a78bfa','#67e8f9','#f0abfc','#93c5fd','#d8b4fe','#f9a8d4','#8b5cf6','#22d3ee'];
+    const burnPerS = withMsi ? CALC.MSI_BURN_ISK_PER_S : 0;
 
     fleetRows.forEach((r, i) => {
-      const sp = CALC.seriesPoints(r.booster, r.miner, r.n, isk, withMsi, xMax);
+      const rateRow = CALC.fleetRate(r.booster, r.miner, r.n);
+      // Each row carries its share of the burn, so the rows still sum to the combined line.
+      const slopeRow = rateRow * isk - (totalRate > 0 ? burnPerS * rateRow / totalRate : 0); // isk/s
+      const pts = [];
+      for (let j = 0; j <= 100; j++) {
+        const t = (xMax * j) / 100;
+        pts.push([CALC.round2(t), CALC.round2(slopeRow * 60 * t / 1e6)]);
+      }
       series.push({
         name: CALC.configName(r.booster, r.miner) + ' ×' + r.n,
         type: 'line',
-        data: sp.points,
+        data: pts,
         showSymbol: false,
         lineWidth: 2,
         itemStyle: { color: colors[i % colors.length] },
-        markLine: sp.pb !== null ? { silent: true, symbol: 'none', label: { show: false }, data: [{ xAxis: sp.pb, lineStyle: { type: 'dashed', color: colors[i % colors.length] } }] } : { silent: true, data: [] },
-        markPoint: sp.pb !== null ? {
-          silent: true, symbol: 'circle', symbolSize: 9,
-          itemStyle: { color: colors[i % colors.length], borderColor: '#1a0f33', borderWidth: 1.5 },
-          label: { show: true, position: 'top', distance: 6, formatter: sp.pb.toFixed(0) + 'm', fontSize: 12, color: colors[i % colors.length] },
-          data: [{ coord: [sp.pb, 0] }],
-        } : undefined,
       });
     });
 
-    // Combined fleet series
+    // Combined fleet series + payback threshold line
     if (fleetRows.length > 0) {
-      const cost = CALC.combinedCost(fleetRows);
-      const rate = CALC.combinedRate(fleetRows);
-      const revPerMin = rate * isk * 60.0;
-      const costM = cost / 1e6;
+      const costM = CALC.combinedCost(fleetRows) / 1e6;
+      const netPerS = totalRate * isk - burnPerS; // isk/s
       const pb = CALC.combinedPaybackSeconds(fleetRows, isk, withMsi) / 60.0;
       const pbFinite = isFinite(pb);
       const times = [0.0];
@@ -635,8 +647,11 @@
       const points = [];
       for (const t of times) {
         if (t > xMax + 1e-9) continue;
-        points.push([CALC.round2(t), CALC.round2((revPerMin * t - cost) / 1e6)]);
+        points.push([CALC.round2(t), CALC.round2(netPerS * 60 * t / 1e6)]);
       }
+      let pbLabel = 'payback';
+      if (pbFinite && pb > xMax) pbLabel = 'payback (not in this belt)';
+      else if (!pbFinite) pbLabel = 'payback (never)';
       series.push({
         name: 'COMBINED fleet',
         type: 'line',
@@ -644,12 +659,12 @@
         showSymbol: false,
         lineWidth: 3,
         itemStyle: { color: '#f5eaff' },
-        markLine: pbFinite ? { silent: true, symbol: 'none', data: [{ xAxis: pb, label: { formatter: 'combined pb ' + pb.toFixed(0) + 'm', position: 'end', color: '#e879f9' }, lineStyle: { type: 'dashed', width: 2, color: '#e879f9' } }] } : { silent: true, data: [] },
-        markPoint: pbFinite ? {
+        markLine: { silent: true, symbol: 'none', data: [{ yAxis: costM, label: { formatter: pbLabel, position: 'insideEndTop', color: '#e879f9' }, lineStyle: { type: 'dashed', width: 2, color: '#e879f9' } }] },
+        markPoint: pbFinite && pb > 0 && pb <= xMax ? {
           silent: true, symbol: 'circle', symbolSize: 10,
           itemStyle: { color: '#f5eaff', borderColor: '#1a0f33', borderWidth: 2 },
-          label: { show: true, position: 'bottom', distance: 6, formatter: pb.toFixed(0) + 'm', fontSize: 12, fontWeight: 'bold', color: '#f5eaff' },
-          data: [{ coord: [pb, 0] }],
+          label: { show: true, position: 'top', distance: 6, formatter: pb.toFixed(0) + ' min', fontSize: 12, fontWeight: 'bold', color: '#f5eaff' },
+          data: [{ coord: [pb, costM] }],
         } : undefined,
       });
     }
@@ -667,8 +682,8 @@
     if (!myChart) myChart = echarts.init(chartDom);
 
     const allY = series.flatMap(s => s.data.map(p => p[1]));
-    const yTop = Math.max(0, ...allY, totalCostM * 0.1);
-    const yBot = Math.min(0, ...allY);
+    // Keep the payback threshold in view even when the belt never reaches it.
+    const yTop = Math.max(1, ...allY, totalCostM) * 1.06;
     const msiLabel = withMsi ? ' (MSI active)' : '';
     const compLabel = chkComp.checked ? ' (composition)' : '';
     const ctxNow = currentCtx();
@@ -694,18 +709,18 @@
         nameLocation: 'center', nameGap: 30,
         nameTextStyle: { color: '#b9a5e8' },
         axisLine: { lineStyle: { color: '#6d4bb0' } },
-        axisLabel: { color: '#b9a5e8' },
+        axisLabel: { color: '#b9a5e8', formatter: v => String(Math.round(v * 10) / 10) },
         min: 0, max: xMax,
         splitLine: { show: true, lineStyle: { color: 'rgba(147, 51, 234, 0.18)' } }
       },
       yAxis: {
-        name: 'Cumulative profit (M ISK)',
+        name: 'Ore value mined (M ISK)',
         nameLocation: 'center', nameGap: 50,
         nameTextStyle: { color: '#b9a5e8' },
         axisLine: { lineStyle: { color: '#6d4bb0' } },
         axisLabel: { color: '#b9a5e8' },
-        min: yBot < 0 ? Math.floor(yBot * 1.05) : 0,
-        max: Math.ceil(yTop * 1.12),
+        min: 0,
+        max: Math.ceil(yTop),
         splitLine: { show: true, lineStyle: { color: 'rgba(147, 51, 234, 0.18)' } }
       },
       legend: { type: 'scroll', orient: 'horizontal', top: 30, textStyle: { color: '#d8b4fe' }, pageTextStyle: { color: '#b9a5e8' } },
