@@ -1,0 +1,90 @@
+{
+  "boosters": {
+    "Orca": 1110.0,
+    "Porpoise": 112.0
+  },
+  "miners": {
+    "Covetor": 50.0,
+    "Hulk": 213.0,
+    "Pioneer": 6.85,
+    "Alpha Pioneer": 6.85,
+    "Venture": 2.27,
+    "Alpha Venture": 2.27
+  },
+  "rates": {
+    "Orca|Hulk": 107.0,
+    "Porpoise|Hulk": 97.1,
+    "Orca|Covetor": 79.2,
+    "Porpoise|Covetor": 71.9,
+    "Orca|Pioneer": 26.6,
+    "Porpoise|Pioneer": 24.2,
+    "Orca|Alpha Pioneer": 15.8,
+    "Porpoise|Alpha Pioneer": 14.4,
+    "Orca|Venture": 18.1,
+    "Porpoise|Venture": 16.5,
+    "Orca|Alpha Venture": 12.9,
+    "Porpoise|Alpha Venture": 11.7
+  },
+  "configs": [
+    {
+      "booster": "Orca",
+      "miner": "Covetor",
+      "name": "Orca + Covetor"
+    },
+    {
+      "booster": "Orca",
+      "miner": "Hulk",
+      "name": "Orca + Hulk"
+    },
+    {
+      "booster": "Orca",
+      "miner": "Pioneer",
+      "name": "Orca + Pioneer"
+    },
+    {
+      "booster": "Orca",
+      "miner": "Alpha Pioneer",
+      "name": "Orca + Alpha Pioneer"
+    },
+    {
+      "booster": "Orca",
+      "miner": "Venture",
+      "name": "Orca + Venture"
+    },
+    {
+      "booster": "Orca",
+      "miner": "Alpha Venture",
+      "name": "Orca + Alpha Venture"
+    },
+    {
+      "booster": "Porpoise",
+      "miner": "Covetor",
+      "name": "Porpoise + Covetor"
+    },
+    {
+      "booster": "Porpoise",
+      "miner": "Hulk",
+      "name": "Porpoise + Hulk"
+    },
+    {
+      "booster": "Porpoise",
+      "miner": "Pioneer",
+      "name": "Porpoise + Pioneer"
+    },
+    {
+      "booster": "Porpoise",
+      "miner": "Alpha Pioneer",
+      "name": "Porpoise + Alpha Pioneer"
+    },
+    {
+      "booster": "Porpoise",
+      "miner": "Venture",
+      "name": "Porpoise + Venture"
+    },
+    {
+      "booster": "Porpoise",
+      "miner": "Alpha Venture",
+      "name": "Porpoise + Alpha Venture"
+    }
+  ]
+}

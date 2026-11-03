@@ -1,0 +1,403 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>EVE Mining Fleet — Payback Calculator</title>
+<style>
+  * { box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; margin: 0; background: #f5f5f7; color: #1d1d1f; }
+  header { background: #1d1d1f; color: #fff; padding: 16px 24px; font-size: 18px; font-weight: 600; }
+  .toolbar { display: flex; gap: 12px; align-items: center; padding: 14px 24px; background: #fff; border-bottom: 1px solid #e5e5e5; flex-wrap: wrap; }
+  .control { display: flex; align-items: center; gap: 8px; }
+  label { font-size: 13px; font-weight: 600; color: #1d1d1f; }
+  select, input { font-size: 13px; padding: 6px 10px; border: 1px solid #d2d2d7; border-radius: 6px; background: #fff; color: #1d1d1f; min-width: 140px; }
+  select:focus, input:focus { outline: none; border-color: #007aff; }
+  input[type="number"] { width: 90px; }
+  .btn { font-size: 13px; padding: 6px 12px; border: 1px solid #d2d2d7; border-radius: 6px; background: #fff; color: #1d1d1f; cursor: pointer; }
+  .btn:hover { background: #f5f5f7; }
+  .btn-primary { background: #007aff; color: #fff; border-color: #007aff; }
+  .btn-primary:hover { background: #0062cc; }
+  .btn-danger { color: #ff3b30; border-color: #ff3b30; }
+  .btn-danger:hover { background: #ffebee; }
+  .status { font-size: 12px; font-weight: 500; color: #1d1d1f; margin-left: auto; }
+  #chart { height: calc(100vh - 700px); padding: 0 24px 24px; background: #fff; min-height: 350px; }
+  .table-wrap { max-width: 900px; margin: 0 auto 16px; overflow-x: auto; }
+  table.fleet-table { width: 100%; border-collapse: collapse; }
+  table.fleet-table th, table.fleet-table td { border: 1px solid #d2d2d7; padding: 6px 8px; text-align: left; font-size: 13px; }
+  table.fleet-table th { background: #f5f5f7; font-weight: 600; }
+  table.fleet-table td select, table.fleet-table td input { min-width: 100px; width: auto; padding: 4px 8px; }
+  .section-title { font-size: 13px; font-weight: 600; color: #6e6e73; padding: 10px 24px 6px; text-transform: uppercase; letter-spacing: 0.5px; }
+  .hint { font-size: 12px; color: #6e6e73; margin-top: 6px; padding: 0 24px; }
+  .overlay { position: absolute; inset: 0; background: rgba(255,255,255,0.85); display: flex; align-items: center; justify-content: center; z-index: 10; color: #1d1d1f; font-size: 16px; font-weight: 500; display: none; }
+  .summary { display: flex; gap: 24px; padding: 12px 24px; background: #fff; border-top: 1px solid #e5e5e5; font-size: 13px; }
+  .summary-item { flex: 1; }
+  .summary-item .val { font-size: 16px; font-weight: 600; color: #007aff; }
+  .summary-item .lbl { font-size: 11px; color: #6e6e73; }
+  .blend-badge { display: inline-block; padding: 2px 8px; border-radius: 10px; background: #e3f2fd; color: #007aff; font-size: 12px; font-weight: 600; margin-left: 8px; }
+</style>
+</head>
+<body>
+<header>EVE Mining Fleet — Payback Calculator</header>
+
+<div class="toolbar">
+  <div class="control">
+    <label>Ore</label>
+    <select id="selOre"></select>
+  </div>
+  <div class="control">
+    <label>isk/m³ (override)</label>
+    <input type="number" id="inpIsk" step="0.1" placeholder="auto">
+  </div>
+  <div class="control">
+    <label style="margin-left:8px"><input type="checkbox" id="chkMsi"> Mobile Scan Inhibitor (35M/hr)</label>
+  </div>
+  <div class="control">
+    <label style="margin-left:8px"><input type="checkbox" id="chkComposition"> Use ore composition</label>
+  </div>
+  <div class="control">
+    <button class="btn btn-primary" id="btnAddRow">+ Add fleet row</button>
+  </div>
+  <div class="status" id="status">Ready</div>
+</div>
+
+<div class="section-title">Fleet (booster + miners)</div>
+<div class="table-wrap">
+  <table class="fleet-table">
+    <thead>
+      <tr>
+        <th>Booster</th><th>Miner</th><th>Count (N)</th><th>Cost (M)</th><th>Rate (m³/s)</th><th>Payback (min)</th><th></th>
+      </tr>
+    </thead>
+    <tbody id="fleetBody"></tbody>
+  </table>
+</div>
+
+<div class="section-title" id="compositionTitle">Ore Composition (belt mix)</div>
+<div class="table-wrap" id="compositionWrap">
+  <table class="fleet-table">
+    <thead>
+      <tr>
+        <th>Ore</th><th>Ratio (%)</th><th>isk/m³ (override)</th><th>Weighted</th><th></th>
+      </tr>
+    </thead>
+    <tbody id="compBody"></tbody>
+  </table>
+  <div style="padding: 8px 24px;">
+    <button class="btn" id="btnAddComp">+ Add ore row</button>
+    <span id="blendDisplay" style="margin-left:16px;"></span>
+  </div>
+</div>
+
+<div class="hint" id="hint"></div>
+<div id="chart"></div>
+<div class="overlay" id="overlay">Computing…</div>
+
+<div class="summary" id="summary"></div>
+
+<script src="calculations.js"></script>
+<script src="echarts.min.js"></script>
+<script>
+(function() {
+  const selOre = document.getElementById('selOre');
+  const inpIsk = document.getElementById('inpIsk');
+  const chkMsi = document.getElementById('chkMsi');
+  const chkComp = document.getElementById('chkComposition');
+  const compositionWrap = document.getElementById('compositionWrap');
+  const compBody = document.getElementById('compBody');
+  const btnAddComp = document.getElementById('btnAddComp');
+  const blendDisplay = document.getElementById('blendDisplay');
+  const btnAdd = document.getElementById('btnAddRow');
+  const fleetBody = document.getElementById('fleetBody');
+  const status = document.getElementById('status');
+  const overlay = document.getElementById('overlay');
+  const hint = document.getElementById('hint');
+  const chartDom = document.getElementById('chart');
+  const summary = document.getElementById('summary');
+
+  let myChart = null;
+  let fleetRows = []; // [{booster, miner, n}]
+  let compRows = [];  // [{ore, ratio, iskOverride}]
+
+  const CALC = window.EVE_MINING_CALC;
+
+  function oreOptions(selectEl) {
+    selectEl.innerHTML = '';
+    CALC.ORES.forEach(o => {
+      const opt = document.createElement('option');
+      opt.value = o.name;
+      opt.textContent = o.name + ' (' + o.avg_isk_m3.toLocaleString() + ' isk/m³)';
+      selectEl.appendChild(opt);
+    });
+  }
+
+  function currentIskPerM3() {
+    if (chkComp.checked) {
+      const b = CALC.blendComposition(compRows);
+      return b ? b.avgIskPerM3 : 0;
+    }
+    const v = parseFloat(inpIsk.value);
+    if (!isNaN(v)) return v;
+    const o = CALC.ORES.find(x => x.name === selOre.value);
+    return o ? o.avg_isk_m3 : 0;
+  }
+
+  function updateBlendDisplay() {
+    const b = CALC.blendComposition(compRows);
+    if (!b || compRows.length === 0) {
+      blendDisplay.textContent = '';
+      return;
+    }
+    blendDisplay.textContent = 'Blended: ' + b.avgIskPerM3.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' isk/m³';
+  }
+
+  function addFleetRow(booster, miner, n) {
+    fleetRows.push({ booster: booster || 'Orca', miner: miner || 'Covetor', n: n || 1 });
+    renderFleetTable();
+    compute();
+  }
+
+  function removeFleetRow(i) {
+    fleetRows.splice(i, 1);
+    renderFleetTable();
+    compute();
+  }
+
+  function renderFleetTable() {
+    fleetBody.innerHTML = '';
+    const isk = currentIskPerM3();
+    const withMsi = chkMsi.checked;
+    fleetRows.forEach((r, i) => {
+      const tr = document.createElement('tr');
+      const costM = CALC.fleetCost(r.booster, r.miner, r.n) / 1e6;
+      const rate = CALC.fleetRate(r.booster, r.miner, r.n);
+      const pb = CALC.paybackMinutes(r.booster, r.miner, r.n, isk, withMsi);
+
+      tr.innerHTML =
+        '<td><select></select></td>' +
+        '<td><select></select></td>' +
+        '<td><input type="number" value="' + r.n + '" min="1"></td>' +
+        '<td>' + costM.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + '</td>' +
+        '<td>' + rate.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '</td>' +
+        '<td>' + (isFinite(pb) ? pb.toFixed(0) + 'm' : '∞') + '</td>' +
+        '<td><button class="btn btn-danger" style="padding:2px 8px;">×</button></td>';
+
+      const bs = tr.querySelectorAll('select')[0];
+      const ms = tr.querySelectorAll('select')[1];
+      const ni = tr.querySelector('input');
+      const rb = tr.querySelector('button');
+
+      CALC.BOOSTERS.forEach(b => {
+        const o = document.createElement('option'); o.value = b; o.textContent = b; bs.appendChild(o);
+      });
+      bs.value = r.booster;
+      CALC.MINERS.forEach(m => {
+        const o = document.createElement('option'); o.value = m; o.textContent = m; ms.appendChild(o);
+      });
+      ms.value = r.miner;
+
+      bs.addEventListener('change', () => { r.booster = bs.value; compute(); });
+      ms.addEventListener('change', () => { r.miner = ms.value; compute(); });
+      ni.addEventListener('input', () => { r.n = Math.max(1, parseInt(ni.value) || 1); compute(); });
+      rb.addEventListener('click', () => { removeFleetRow(i); });
+
+      fleetBody.appendChild(tr);
+    });
+  }
+
+  function addCompRow(ore, ratio, iskOverride) {
+    compRows.push({ ore: ore || 'Gneiss', ratio: ratio || 50, iskOverride: iskOverride || '' });
+    renderCompTable();
+    compute();
+  }
+
+  function removeCompRow(i) {
+    compRows.splice(i, 1);
+    renderCompTable();
+    compute();
+  }
+
+  function renderCompTable() {
+    compBody.innerHTML = '';
+    compRows.forEach((c, i) => {
+      const tr = document.createElement('tr');
+      const ore = CALC.oreByName(c.ore);
+      const isk = c.iskOverride != null ? parseFloat(c.iskOverride) : (ore ? ore.avg_isk_m3 : 0);
+      const weighted = (parseFloat(c.ratio) || 0) * isk;
+
+      tr.innerHTML =
+        '<td><select></select></td>' +
+        '<td><input type="number" value="' + c.ratio + '" min="0.1" step="0.1"></td>' +
+        '<td><input type="number" value="' + (c.iskOverride || '') + '" step="0.1" placeholder="auto"></td>' +
+        '<td>' + (isFinite(isk) ? isk.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : '–') + '</td>' +
+        '<td><button class="btn btn-danger" style="padding:2px 8px;">×</button></td>';
+
+      const os = tr.querySelector('select');
+      const ri = tr.querySelectorAll('input')[0];
+      const ii = tr.querySelectorAll('input')[1];
+      const rb = tr.querySelector('button');
+
+      CALC.ORES.forEach(o => {
+        const opt = document.createElement('option'); opt.value = o.name; opt.textContent = o.name; os.appendChild(opt);
+      });
+      os.value = c.ore;
+
+      os.addEventListener('change', () => { c.ore = os.value; compute(); });
+      ri.addEventListener('input', () => { c.ratio = Math.max(0.1, parseFloat(ri.value) || 0.1); compute(); });
+      ii.addEventListener('input', () => { c.iskOverride = ii.value === '' ? '' : ii.value; compute(); });
+      rb.addEventListener('click', () => { removeCompRow(i); });
+
+      compBody.appendChild(tr);
+    });
+    updateBlendDisplay();
+  }
+
+  function compute() {
+    const isk = currentIskPerM3();
+    const withMsi = chkMsi.checked;
+
+    // Combined fleet
+    const totalCost = CALC.combinedCost(fleetRows) / 1e6;
+    const totalRate = CALC.combinedRate(fleetRows);
+    const pbCombined = CALC.combinedPaybackSeconds(fleetRows, isk, withMsi) / 60.0;
+
+    // Determine x-axis max
+    let maxPb = 60;
+    for (const r of fleetRows) {
+      const pb = CALC.paybackMinutes(r.booster, r.miner, r.n, isk, withMsi);
+      if (isFinite(pb) && pb > maxPb) maxPb = pb;
+    }
+    if (isFinite(pbCombined) && pbCombined > maxPb) maxPb = pbCombined;
+    const xMax = maxPb * 1.25;
+
+    // Build series
+    const series = [];
+    const colors = ['#1f77b4','#ff7f0e','#2ca02c','#d62728','#9467bd','#8c564b','#e377c2','#7f7f7f','#bcbd22','#17becf','#aec7e8','#ffbb78'];
+
+    fleetRows.forEach((r, i) => {
+      const sp = CALC.seriesPoints(r.booster, r.miner, r.n, isk, withMsi, xMax);
+      series.push({
+        name: CALC.configName(r.booster, r.miner) + ' ×' + r.n,
+        type: 'line',
+        data: sp.points,
+        showSymbol: false,
+        lineWidth: 2,
+        itemStyle: { color: colors[i % colors.length] },
+        markLine: sp.pb !== null ? { silent: true, data: [{ xAxis: sp.pb, label: { formatter: 'pb ' + sp.pb.toFixed(0) + 'm', position: 'insideStartTop' }, lineStyle: { type: 'dashed' } }] } : { silent: true, data: [] },
+      });
+    });
+
+    // Combined fleet series
+    if (fleetRows.length > 0) {
+      const cost = CALC.combinedCost(fleetRows);
+      const rate = CALC.combinedRate(fleetRows);
+      const revPerMin = rate * isk * 60.0;
+      const costM = cost / 1e6;
+      const pb = CALC.combinedPaybackSeconds(fleetRows, isk, withMsi) / 60.0;
+      const pbFinite = isFinite(pb);
+      const times = [0.0];
+      if (pbFinite && pb > 0 && pb < xMax) times.push(pb);
+      for (let i = 1; i <= 200; i++) {
+        const t = (xMax * i) / 200;
+        if (pbFinite && Math.abs(t - pb) < 1e-6) continue;
+        times.push(t);
+      }
+      times.sort((a, b) => a - b);
+      const points = [];
+      for (const t of times) {
+        if (t > xMax + 1e-9) continue;
+        points.push([CALC.round2(t), CALC.round2((revPerMin * t - cost) / 1e6)]);
+      }
+      series.push({
+        name: 'COMBINED fleet',
+        type: 'line',
+        data: points,
+        showSymbol: false,
+        lineWidth: 3,
+        itemStyle: { color: '#000' },
+        markLine: pbFinite ? { silent: true, data: [{ xAxis: pb, label: { formatter: 'combined pb ' + pb.toFixed(0) + 'm', position: 'insideStartTop' }, lineStyle: { type: 'dashed', width: 2 } }] } : { silent: true, data: [] },
+      });
+    }
+
+    renderChart(series, xMax, isk, withMsi, totalCost, totalRate, pbCombined);
+    renderFleetTable();
+    renderCompTable();
+    renderSummary(totalCost, totalRate, pbCombined, isk);
+  }
+
+  function renderChart(series, xMax, isk, withMsi, totalCostM, totalRate, pbCombined) {
+    if (!myChart) myChart = echarts.init(chartDom);
+
+    const yMax = Math.max(0, ...series.flatMap(s => s.data.map(p => p[1])), totalCostM * 0.1) * 1.12;
+    const msiLabel = withMsi ? ' (MSI active)' : '';
+    const compLabel = chkComp.checked ? ' (composition)' : '';
+
+    myChart.setOption({
+      title: { text: 'Mining Fleet Payback' + msiLabel + compLabel, left: 'center', textStyle: { fontSize: 16 } },
+      tooltip: {
+        trigger: 'axis',
+        formatter: function(params) {
+          if (!params || params.length === 0) return '';
+          const p = params[0];
+          const t = p.value[0].toFixed(0) + ' min';
+          const profit = p.value[1].toFixed(1) + ' M ISK';
+          return p.seriesName + '<br/>' + t + '<br/>Profit: ' + profit;
+        }
+      },
+      grid: { left: 70, right: 40, top: 60, bottom: 70 },
+      xAxis: {
+        name: 'Time (minutes)',
+        nameLocation: 'center', nameGap: 30,
+        min: 0, max: xMax,
+        splitLine: { show: true, lineStyle: { color: '#eee' } }
+      },
+      yAxis: {
+        name: 'Cumulative profit (M ISK)',
+        nameLocation: 'center', nameGap: 50,
+        min: 0, max: yMax,
+        splitLine: { show: true, lineStyle: { color: '#eee' } }
+      },
+      legend: { type: 'scroll', orient: 'horizontal', top: 30 },
+      series: series,
+      animationDuration: 0
+    });
+  }
+
+  function renderSummary(totalCostM, totalRate, pbCombined, isk) {
+    const compText = chkComp.checked ? ' (composition)' : '';
+    summary.innerHTML =
+      '<div class="summary-item"><div class="lbl">Fleet cost</div><div class="val">' + totalCostM.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' M ISK</div></div>' +
+      '<div class="summary-item"><div class="lbl">Mining rate</div><div class="val">' + totalRate.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' m³/s</div></div>' +
+      '<div class="summary-item"><div class="lbl">Ore value' + compText + '</div><div class="val">' + isk.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' isk/m³</div></div>' +
+      '<div class="summary-item"><div class="lbl">Combined payback</div><div class="val">' + (isFinite(pbCombined) ? pbCombined.toFixed(0) + ' min' : 'never') + '</div></div>';
+  }
+
+  function showStatus(msg) { status.textContent = msg; }
+  function showOverlay(show) { overlay.style.display = show ? 'flex' : 'none'; }
+
+  // Wire up controls
+  oreOptions(selOre);
+  compositionWrap.style.display = chkComp.checked ? 'block' : 'none';
+  inpIsk.addEventListener('input', compute);
+  chkMsi.addEventListener('change', compute);
+  chkComp.addEventListener('change', () => {
+    compositionWrap.style.display = chkComp.checked ? 'block' : 'none';
+    inpIsk.disabled = chkComp.checked;
+    compute();
+  });
+  selOre.addEventListener('change', () => { if (!chkComp.checked) inpIsk.value = ''; compute(); });
+  btnAdd.addEventListener('click', () => addFleetRow());
+  btnAddComp.addEventListener('click', () => addCompRow());
+
+  // Seed
+  addFleetRow('Porpoise', 'Covetor', 6);
+  addCompRow('Gneiss', 60);
+  addCompRow('Dark Ochre', 40);
+
+  compute();
+  showOverlay(false);
+  showStatus('Ready. ' + CALC.ORES.length + ' ores × ' + CALC.BOOSTERS.length + ' boosters × ' + CALC.MINERS.length + ' miners.');
+})();
+</script>
+</body>
+</html>
