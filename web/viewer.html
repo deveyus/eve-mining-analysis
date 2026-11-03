@@ -584,16 +584,17 @@
     const totalRate = CALC.combinedRate(fleetRows);
     const pbCombined = CALC.combinedPaybackSeconds(fleetRows, isk, withMsi) / 60.0;
 
-    // Determine x-axis max. With a belt scan in, the graph ends when the belt
-    // is empty (nothing left to mine past that point); otherwise it runs a bit
-    // past the slowest payback so the crossing stays visible.
+    // Determine x-axis max. With a belt scan in, the graph runs to the last
+    // rock plus ~10% of breathing room — past the last rock the lines go flat,
+    // since nothing more gets mined. Without a belt it runs a bit past the
+    // slowest payback so the crossing stays visible.
     const beltInfo = (beltParsed && beltParsed.items.length) ? beltTotals() : null;
     const depMin = (beltInfo && beltInfo.totalM3 > 0 && totalRate > 0)
       ? beltInfo.totalM3 / totalRate / 60
       : null;
     let xMax;
     if (depMin !== null) {
-      xMax = depMin;
+      xMax = depMin * 1.1;
     } else {
       let maxPb = 60;
       for (const r of fleetRows) {
@@ -615,11 +616,14 @@
       const rateRow = CALC.fleetRate(r.booster, r.miner, r.n);
       // Each row carries its share of the burn, so the rows still sum to the combined line.
       const slopeRow = rateRow * isk - (totalRate > 0 ? burnPerS * rateRow / totalRate : 0); // isk/s
+      const riseEnd = depMin !== null ? depMin : xMax;
       const pts = [];
       for (let j = 0; j <= 100; j++) {
-        const t = (xMax * j) / 100;
+        const t = (riseEnd * j) / 100;
         pts.push([CALC.round2(t), CALC.round2(slopeRow * 60 * t / 1e6)]);
       }
+      // Past the belt's last rock the line just coasts flat.
+      if (xMax > riseEnd + 1e-9) pts.push([CALC.round2(xMax), CALC.round2(slopeRow * 60 * riseEnd / 1e6)]);
       series.push({
         name: CALC.configName(r.booster, r.miner) + ' ×' + r.n,
         type: 'line',
@@ -636,22 +640,30 @@
       const netPerS = totalRate * isk - burnPerS; // isk/s
       const pb = CALC.combinedPaybackSeconds(fleetRows, isk, withMsi) / 60.0;
       const pbFinite = isFinite(pb);
+      // Payback only counts while there's ore: past the last rock the lines flatline.
+      const riseEnd = depMin !== null ? depMin : xMax;
       const times = [0.0];
-      if (pbFinite && pb > 0 && pb < xMax) times.push(pb);
+      if (pbFinite && pb > 0 && pb < riseEnd) times.push(pb);
       for (let i = 1; i <= 200; i++) {
-        const t = (xMax * i) / 200;
+        const t = (riseEnd * i) / 200;
         if (pbFinite && Math.abs(t - pb) < 1e-6) continue;
         times.push(t);
       }
       times.sort((a, b) => a - b);
       const points = [];
       for (const t of times) {
-        if (t > xMax + 1e-9) continue;
+        if (t > riseEnd + 1e-9) continue;
         points.push([CALC.round2(t), CALC.round2(netPerS * 60 * t / 1e6)]);
       }
+      if (xMax > riseEnd + 1e-9) points.push([CALC.round2(xMax), CALC.round2(netPerS * 60 * riseEnd / 1e6)]);
       let pbLabel = 'payback';
-      if (pbFinite && pb > xMax) pbLabel = 'payback (not in this belt)';
+      if (pbFinite && pb > riseEnd) pbLabel = 'payback (not in this belt)';
       else if (!pbFinite) pbLabel = 'payback (never)';
+      const beltMark = depMin !== null ? [{
+        xAxis: depMin,
+        label: { formatter: 'Belt Exhausted', position: 'insideStartTop', color: '#67e8f9' },
+        lineStyle: { type: 'dashed', width: 1.5, color: '#67e8f9' },
+      }] : [];
       series.push({
         name: 'COMBINED fleet',
         type: 'line',
@@ -659,8 +671,8 @@
         showSymbol: false,
         lineWidth: 3,
         itemStyle: { color: '#f5eaff' },
-        markLine: { silent: true, symbol: 'none', data: [{ yAxis: costM, label: { formatter: pbLabel, position: 'insideEndTop', color: '#e879f9' }, lineStyle: { type: 'dashed', width: 2, color: '#e879f9' } }] },
-        markPoint: pbFinite && pb > 0 && pb <= xMax ? {
+        markLine: { silent: true, symbol: 'none', data: [{ yAxis: costM, label: { formatter: pbLabel, position: 'insideEndTop', color: '#e879f9' }, lineStyle: { type: 'dashed', width: 2, color: '#e879f9' } }, ...beltMark] },
+        markPoint: pbFinite && pb > 0 && pb <= riseEnd ? {
           silent: true, symbol: 'circle', symbolSize: 10,
           itemStyle: { color: '#f5eaff', borderColor: '#1a0f33', borderWidth: 2 },
           label: { show: true, position: 'top', distance: 6, formatter: pb.toFixed(0) + ' min', fontSize: 12, fontWeight: 'bold', color: '#f5eaff' },
