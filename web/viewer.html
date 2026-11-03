@@ -155,15 +155,15 @@
   .filter-row .count { font-size: 13px; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
   .hint { font-size: 14px; color: var(--ink-dim); padding: 0 4px; }
 
-  /* Haul paste */
-  #haulText {
+  /* Haul paste + belt scan */
+  #haulText, #beltText {
     width: 100%; min-height: 130px; resize: vertical; display: block;
     font-family: var(--mono); font-size: 14.5px; line-height: 1.55;
     color: var(--ink); background: #170c30;
     border: 1px solid rgba(168, 85, 247, 0.45); border-radius: 9px; padding: 10px 12px;
   }
-  #haulText::placeholder { color: #6d5a99; }
-  #haulText:focus {
+  #haulText::placeholder, #beltText::placeholder { color: #6d5a99; }
+  #haulText:focus, #beltText:focus {
     outline: none; border-color: var(--neon);
     box-shadow: 0 0 0 3px rgba(192, 132, 252, 0.25), 0 0 14px rgba(192, 132, 252, 0.35);
   }
@@ -249,6 +249,29 @@
         <button class="btn" id="btnAddComp">+ Add ore row</button>
         <span id="blendDisplay" class="blend-badge">Blended: — isk/m³</span>
       </div>
+    </div>
+  </div>
+
+  <!-- Belt scan card -->
+  <div class="card" id="beltCard">
+    <div class="card-header">Paste a belt scan</div>
+    <div class="card-body">
+      <textarea id="beltText" rows="6" spellcheck="false" placeholder="Survey scanner → select all → copy, one asteroid per line.&#10;Scordite  10,729  1,609 m3  168,000.00 ISK  121 km"></textarea>
+      <div class="btn-row">
+        <button class="btn btn-primary" id="btnBelt">Scan it</button>
+        <button class="btn" id="btnBeltClear">Clear</button>
+        <button class="btn" id="btnBeltToComp">Load into composition</button>
+        <span id="beltBadge" class="blend-badge" style="display:none;"></span>
+      </div>
+      <div class="table-wrap" id="beltResult" style="display:none; margin-top:12px;">
+        <table class="fleet-table">
+          <thead>
+            <tr><th>Ore</th><th>Units</th><th>m³</th><th>Share</th><th>Value · <span id="beltBasisLabel">raw ore</span></th></tr>
+          </thead>
+          <tbody id="beltBody"></tbody>
+        </table>
+      </div>
+      <div class="val-note" id="beltNote" style="display:none;"></div>
     </div>
   </div>
 
@@ -346,6 +369,15 @@
   const haulNote = document.getElementById('haulNote');
   const haulBasisLabel = document.getElementById('haulBasisLabel');
   const HAUL = window.HAUL_PARSE;
+  const beltText = document.getElementById('beltText');
+  const btnBelt = document.getElementById('btnBelt');
+  const btnBeltClear = document.getElementById('btnBeltClear');
+  const btnBeltToComp = document.getElementById('btnBeltToComp');
+  const beltBody = document.getElementById('beltBody');
+  const beltResult = document.getElementById('beltResult');
+  const beltBadge = document.getElementById('beltBadge');
+  const beltNote = document.getElementById('beltNote');
+  const beltBasisLabel = document.getElementById('beltBasisLabel');
 
   let myChart = null;
   let fleetRows = []; // [{booster, miner, n}]
@@ -627,6 +659,7 @@
     updateCompCells();
     updateValuationCells();
     updateHaul();
+    updateBelt();
     renderSummary(totalCost, totalRate, pbCombined, isk);
   }
 
@@ -845,6 +878,92 @@
     updateHaul();
   }
 
+  // ---- Belt scan panel ----
+  let beltParsed = null; // { items, skipped } from the last scan paste
+  let beltRocks = 0;     // asteroids parsed (lines minus skipped)
+
+  function onBeltScan() {
+    beltParsed = HAUL.parseHaulText(beltText.value, HAUL_NAMES);
+    const lines = beltText.value.split(/\r?\n/).filter(l => l.trim()).length;
+    beltRocks = beltParsed ? Math.max(0, lines - beltParsed.skipped.length) : 0;
+    updateBelt();
+  }
+
+  function beltRowsNow() {
+    const ctx = currentCtx();
+    const rows = [];
+    for (const it of beltParsed.items) {
+      const ore = CALC.oreByName(it.key);
+      if (!ore) continue;
+      const m3 = it.qty * ore.volume_m3;
+      const perM3 = CALC.basisValuePerM3({ ore: it.key, iskOverride: '' }, ctx);
+      rows.push({ name: it.key, qty: it.qty, m3, perM3 });
+    }
+    rows.sort((a, b) => b.m3 - a.m3);
+    return rows;
+  }
+
+  function beltTotals() {
+    const rows = beltRowsNow();
+    const totalM3 = rows.reduce((s, r) => s + r.m3, 0);
+    return { rows, totalM3 };
+  }
+
+  function fmtDur(min) {
+    if (!isFinite(min)) return '—';
+    if (min < 120) return '~' + Math.round(min) + ' min';
+    return '~' + Math.floor(min / 60) + 'h ' + Math.round(min % 60) + 'm';
+  }
+
+  function updateBelt() {
+    if (!beltParsed || !beltParsed.items.length) {
+      beltResult.style.display = 'none';
+      beltBadge.style.display = 'none';
+      beltNote.style.display = 'none';
+      return;
+    }
+    const { rows, totalM3 } = beltTotals();
+    beltBasisLabel.textContent = basisShortLabel();
+    beltBody.innerHTML = '';
+    for (const r of rows) {
+      const share = totalM3 > 0 ? (100 * r.m3 / totalM3).toFixed(1) + '%' : '–';
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td>' + r.name + '</td>' +
+        '<td>' + r.qty.toLocaleString(undefined, { maximumFractionDigits: 0 }) + '</td>' +
+        '<td>' + (isFinite(r.m3) ? Math.round(r.m3).toLocaleString() : '–') + '</td>' +
+        '<td>' + share + '</td>' +
+        '<td>' + (isFinite(r.perM3) ? (r.m3 * r.perM3).toLocaleString(undefined, { maximumFractionDigits: 0 }) : '–') + '</td>';
+      beltBody.appendChild(tr);
+    }
+    const rate = CALC.combinedRate(fleetRows);
+    const dep = rate > 0 ? totalM3 / rate / 60 : NaN;
+    beltBadge.textContent = 'Belt: ' + Math.round(totalM3).toLocaleString() + ' m³ · ' + beltRocks + ' rocks · strips in ' + fmtDur(dep);
+    beltBadge.style.display = 'inline-block';
+    beltResult.style.display = '';
+    let note = 'Shares are by volume — the part of the belt the fleet actually mines. Loading into composition replaces the mix with this scan and reprices everything.';
+    if (beltParsed.skipped.length) note += ' Didn\'t parse: ' + beltParsed.skipped.join(' · ');
+    beltNote.textContent = note;
+    beltNote.style.display = '';
+  }
+
+  function loadBeltIntoComp() {
+    if (!beltParsed || !beltParsed.items.length) return;
+    const { rows, totalM3 } = beltTotals();
+    if (!(totalM3 > 0)) return;
+    compRows = rows.map(r => ({
+      ore: r.name,
+      ratio: Math.max(0.1, Math.round(1000 * r.m3 / totalM3) / 10),
+      iskOverride: '',
+    }));
+    chkComp.checked = true;
+    compositionCard.style.display = 'block';
+    inpIsk.disabled = true;
+    renderCompTable();
+    compute();
+    compositionCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
   function applyLive() {
     if (liveStore && liveStore.prices) {
       const t = new Date(liveStore.ts).toISOString().slice(11, 16);
@@ -940,6 +1059,9 @@
   btnLive.addEventListener('click', fetchLivePrices);
   btnHaul.addEventListener('click', onHaulValue);
   btnHaulClear.addEventListener('click', () => { haulText.value = ''; haulParsed = null; updateHaul(); });
+  btnBelt.addEventListener('click', onBeltScan);
+  btnBeltClear.addEventListener('click', () => { beltText.value = ''; beltParsed = null; beltRocks = 0; updateBelt(); });
+  btnBeltToComp.addEventListener('click', loadBeltIntoComp);
   selBasis.addEventListener('change', () => {
     try { localStorage.setItem('emp_basis', selBasis.value); } catch (e) { /* private mode */ }
     compute();
