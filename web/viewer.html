@@ -804,10 +804,21 @@
 
   function renderSummary(totalCostM, totalRate, pbCombined, isk) {
     const compText = chkComp.checked ? ' (composition)' : '';
+    // Belt value rides in the stat bar only when a belt scan is in — the worth
+    // of everything still sitting in the belt, priced on the current basis.
+    const beltInfo = (beltParsed && beltParsed.items.length) ? beltTotals() : null;
+    const beltVal = beltInfo
+      ? beltInfo.rows.reduce((s, r) => s + (isFinite(r.m3) && isFinite(r.perM3) ? r.m3 * r.perM3 : 0), 0)
+      : null;
+    const beltItem = beltVal !== null
+      ? '<div class="summary-item"><div class="lbl">Belt value · ' + basisShortLabel() + '</div><div class="val">'
+        + (beltVal / 1e6).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 1 }) + ' M ISK</div></div>'
+      : '';
     summary.innerHTML =
       '<div class="summary-item"><div class="lbl">Fleet cost</div><div class="val">' + totalCostM.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' M ISK</div></div>' +
       '<div class="summary-item"><div class="lbl">Mining rate</div><div class="val">' + totalRate.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' m³/s</div></div>' +
       '<div class="summary-item"><div class="lbl">Ore value' + compText + ' · ' + basisShortLabel() + '</div><div class="val">' + isk.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' isk/m³</div></div>' +
+      beltItem +
       '<div class="summary-item"><div class="lbl">Combined payback</div><div class="val">' + (isFinite(pbCombined) ? pbCombined.toFixed(0) + ' min' : 'never') + '</div></div>';
   }
 
