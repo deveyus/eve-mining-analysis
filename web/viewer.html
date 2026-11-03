@@ -275,6 +275,9 @@
     </div>
   </div>
 
+  <!-- Summary -->
+  <div class="summary" id="summary"></div>
+
   <!-- Chart -->
   <div id="chart"></div>
 
@@ -323,9 +326,6 @@
   </div>
 
   <div class="hint" id="hint"></div>
-
-  <!-- Summary -->
-  <div class="summary" id="summary"></div>
 
   <div class="overlay" id="overlay">Computing…</div>
 
@@ -913,7 +913,9 @@
     beltParsed = HAUL.parseHaulText(beltText.value, HAUL_NAMES);
     const lines = beltText.value.split(/\r?\n/).filter(l => l.trim()).length;
     beltRocks = beltParsed ? Math.max(0, lines - beltParsed.skipped.length) : 0;
-    updateBelt();
+    // compute() refreshes the whole page including the belt panel and the
+    // chart's belt-bounded axis — a fresh scan re-times everything at once.
+    compute();
   }
 
   function beltRowsNow() {
@@ -1087,7 +1089,7 @@
   btnHaul.addEventListener('click', onHaulValue);
   btnHaulClear.addEventListener('click', () => { haulText.value = ''; haulParsed = null; updateHaul(); });
   btnBelt.addEventListener('click', onBeltScan);
-  btnBeltClear.addEventListener('click', () => { beltText.value = ''; beltParsed = null; beltRocks = 0; updateBelt(); });
+  btnBeltClear.addEventListener('click', () => { beltText.value = ''; beltParsed = null; beltRocks = 0; compute(); });
   btnBeltToComp.addEventListener('click', loadBeltIntoComp);
   selBasis.addEventListener('change', () => {
     try { localStorage.setItem('emp_basis', selBasis.value); } catch (e) { /* private mode */ }
