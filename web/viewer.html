@@ -183,6 +183,19 @@
   .filter-row .count { font-size: 13px; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
   .hint { font-size: 14px; color: var(--ink-dim); padding: 0 4px; }
 
+  /* Share zone: name the setup, copy a link that carries it */
+  .share-zone { margin-left: auto; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  #shareName {
+    width: 200px; font-size: 14px; padding: 9px 12px; border-radius: 9px;
+    color: var(--ink); border: 1px solid rgba(168, 85, 247, 0.45);
+    background: #170c30; font-family: inherit;
+  }
+  #shareName::placeholder { color: #6d5a99; }
+  #shareName:focus {
+    outline: none; border-color: var(--neon);
+    box-shadow: 0 0 0 3px rgba(192, 132, 252, 0.25), 0 0 14px rgba(192, 132, 252, 0.35);
+  }
+
   /* Haul paste + belt scan */
   #haulText, #beltText {
     width: 100%; min-height: 130px; resize: vertical; display: block;
@@ -208,6 +221,10 @@
     <span id="beltBadge" class="blend-badge" style="display:none;"></span>
     <button class="btn" id="btnOpenHaul">Paste a haul</button>
     <span id="haulTotal" class="blend-badge" style="display:none;"></span>
+    <span class="share-zone">
+      <input id="shareName" type="text" maxlength="80" placeholder="Name it, e.g. Belt 6 -2">
+      <button class="btn" id="btnCopyLink">Copy link</button>
+    </span>
   </div>
 
   <!-- Configuration card -->
@@ -420,6 +437,8 @@
   const btnOpenHaul = document.getElementById('btnOpenHaul');
   const beltModal = document.getElementById('beltModal');
   const haulModal = document.getElementById('haulModal');
+  const shareName = document.getElementById('shareName');
+  const btnCopyLink = document.getElementById('btnCopyLink');
 
   let myChart = null;
   let fleetRows = []; // [{booster, miner, n}]
@@ -1149,6 +1168,155 @@
   document.addEventListener('keydown', e => {
     if (e.key === 'Escape') { closeModal(beltModal); closeModal(haulModal); }
   });
+  // ---- Named share links: the whole setup travels inside the URL after the #.
+  // Payload is deflate-raw + base64url ("1." prefix), with a plain base64url
+  // fallback ("0.") for browsers without CompressionStream. Belt and haul ride
+  // along as parsed stacks, not raw paste — that's what keeps links short
+  // enough to drop straight into a Discord message.
+
+  function b64urlFromBytes(bytes) {
+    let bin = '';
+    for (const b of bytes) bin += String.fromCharCode(b);
+    return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  }
+  function bytesFromB64url(str) {
+    let s = str.replace(/-/g, '+').replace(/_/g, '/');
+    while (s.length % 4) s += '=';
+    const bin = atob(s);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+  async function deflateB64url(str) {
+    const cs = new CompressionStream('deflate-raw');
+    const buf = await new Response(new Blob([str]).stream().pipeThrough(cs)).arrayBuffer();
+    return b64urlFromBytes(new Uint8Array(buf));
+  }
+  async function inflateB64url(b64) {
+    const ds = new DecompressionStream('deflate-raw');
+    return await new Response(new Blob([bytesFromB64url(b64)]).stream().pipeThrough(ds)).text();
+  }
+  function plainFromB64url(b64) { return new TextDecoder().decode(bytesFromB64url(b64)); }
+
+  function itemDisp(kind, key) { return kind === 'comp' ? 'Compressed ' + key : key; }
+
+  // Rebuild parser-shaped {items, skipped} from the link's compact rows.
+  function parsedFromRows(rows, skipped) {
+    const items = (Array.isArray(rows) ? rows : [])
+      .filter(r => Array.isArray(r) && ['ore', 'comp', 'mineral'].includes(r[0])
+        && typeof r[1] === 'string' && typeof r[2] === 'number' && isFinite(r[2]) && r[2] > 0)
+      .map(r => ({ kind: r[0], key: r[1], qty: r[2], disp: itemDisp(r[0], r[1]) }));
+    return { items, skipped: Array.isArray(skipped) ? skipped.map(String) : [] };
+  }
+
+  function shareStateNow() {
+    return {
+      v: 1,
+      name: shareName.value.trim(),
+      cfg: {
+        ore: selOre.value, isk: inpIsk.value, msi: chkMsi.checked, comp: chkComp.checked,
+        basis: selBasis.value, yield: inpYield.value,
+      },
+      fleet: fleetRows.map(r => [r.booster, r.miner, r.n]),
+      comp: compRows.map(c => [c.ore, c.ratio, c.iskOverride]),
+      belt: beltParsed ? { rocks: beltRocks, items: beltParsed.items.map(it => [it.kind, it.key, it.qty]), skipped: beltParsed.skipped } : null,
+      haul: haulParsed ? { items: haulParsed.items.map(it => [it.kind, it.key, it.qty]), skipped: haulParsed.skipped } : null,
+    };
+  }
+
+  async function buildShareUrl() {
+    const json = JSON.stringify(shareStateNow());
+    const packed = await deflateB64url(json);
+    const payload = packed ? '1.' + packed : '0.' + b64urlFromBytes(new TextEncoder().encode(json));
+    return { url: location.href.split('#')[0] + '#s=' + payload, hash: '#s=' + payload };
+  }
+
+  function applyDocTitle() {
+    const nm = shareName.value.trim();
+    document.title = nm ? nm + ' — EVE Mining Fleet' : 'EVE Mining Fleet — Payback Calculator';
+  }
+
+  // Open a shared link: the URL's setup replaces whatever the page booted with.
+  async function applyShareFromUrl() {
+    const m = /#s=([01])\.([A-Za-z0-9_-]+)/.exec(location.hash || '');
+    if (!m) return false;
+    let st;
+    try {
+      st = JSON.parse(m[1] === '1' ? await inflateB64url(m[2]) : plainFromB64url(m[2]));
+      if (!st || st.v !== 1) throw new Error('unknown format');
+    } catch (e) {
+      showStatus("That share link didn't decode (" + e.message + ').');
+      return false;
+    }
+    const c = st.cfg || {};
+    if (CALC.oreByName(c.ore)) selOre.value = c.ore;
+    inpIsk.value = c.isk == null ? '' : String(c.isk);
+    chkMsi.checked = !!c.msi;
+    chkComp.checked = !!c.comp;
+    if (['raw', 'minerals', 'compressed'].includes(c.basis)) selBasis.value = c.basis;
+    inpYield.value = c.yield == null || c.yield === '' ? '50' : String(c.yield);
+    compositionCard.style.display = chkComp.checked ? 'block' : 'none';
+    inpIsk.disabled = chkComp.checked;
+
+    fleetRows = (Array.isArray(st.fleet) ? st.fleet : [])
+      .filter(f => Array.isArray(f) && CALC.BOOSTERS.includes(f[0]) && CALC.MINERS.includes(f[1]))
+      .map(f => ({ booster: f[0], miner: f[1], n: Math.max(1, parseInt(f[2]) || 1) }));
+    renderFleetTable();
+    compRows = (Array.isArray(st.comp) ? st.comp : [])
+      .filter(f => Array.isArray(f) && CALC.oreByName(f[0]))
+      .map(f => ({ ore: f[0], ratio: Math.max(0.1, parseFloat(f[1]) || 0.1), iskOverride: f[2] == null ? '' : String(f[2]) }));
+    renderCompTable();
+
+    if (st.belt && Array.isArray(st.belt.items)) {
+      beltParsed = parsedFromRows(st.belt.items, st.belt.skipped);
+      beltRocks = Math.max(0, parseInt(st.belt.rocks) || beltParsed.items.length);
+      beltText.value = beltParsed.items
+        .map(it => itemDisp(it.kind, it.key) + '  ' + it.qty.toLocaleString('en-US')).join('\n');
+    } else {
+      beltParsed = null; beltRocks = 0; beltText.value = '';
+    }
+    if (st.haul && Array.isArray(st.haul.items)) {
+      haulParsed = parsedFromRows(st.haul.items, st.haul.skipped);
+      haulText.value = haulParsed.items
+        .map(it => itemDisp(it.kind, it.key) + '  ' + it.qty.toLocaleString('en-US')).join('\n');
+    } else {
+      haulParsed = null; haulText.value = '';
+    }
+
+    const nm = typeof st.name === 'string' ? st.name.trim() : '';
+    shareName.value = nm;
+    applyDocTitle();
+    compute();
+    showStatus(nm ? 'Viewing shared setup: ' + nm : 'Viewing a shared setup.');
+    return true;
+  }
+
+  btnCopyLink.addEventListener('click', async () => {
+    btnCopyLink.disabled = true;
+    try {
+      const { url, hash } = await buildShareUrl();
+      // The address bar becomes the link itself — refresh keeps the setup,
+      // and re-copying needs one click, not a rebuild.
+      try { history.replaceState(null, '', hash); } catch (e) { /* file:// quirk */ }
+      applyDocTitle();
+      let ok = false;
+      try { await navigator.clipboard.writeText(url); ok = true; }
+      catch (e) {
+        const ta = document.createElement('textarea');
+        ta.value = url; ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select();
+        try { ok = document.execCommand('copy'); } catch (e2) { /* nothing more */ }
+        ta.remove();
+      }
+      btnCopyLink.textContent = ok ? 'Copied!' : 'Link is in the address bar';
+      if (!ok) showStatus('Clipboard said no — the link is sitting in the address bar, ready to copy.');
+    } finally {
+      btnCopyLink.disabled = false;
+      setTimeout(() => { btnCopyLink.textContent = 'Copy link'; }, 1800);
+    }
+  });
+  shareName.addEventListener('input', applyDocTitle);
+
   selBasis.addEventListener('change', () => {
     try { localStorage.setItem('emp_basis', selBasis.value); } catch (e) { /* private mode */ }
     compute();
@@ -1174,6 +1342,9 @@
   applyLive();
   showStatus('Ready. ' + CALC.ORES.length + ' ores in ' + Object.keys(CALC.ORE_FAMILIES).length + ' groups × ' + CALC.BOOSTERS.length + ' boosters × ' + CALC.MINERS.length + ' miners.'
     + (liveStore ? ' Live prices from ' + new Date(liveStore.ts).toISOString().slice(11, 16) + ' UTC.' : ''));
+
+  // A shared link, if the URL carries one, replaces whatever the page booted with.
+  applyShareFromUrl();
 })();
 </script>
 </body>
