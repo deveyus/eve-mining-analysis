@@ -53,6 +53,8 @@
   .status { font-size: 12px; font-weight: 500; color: #1d1d1f; margin-left: auto; }
   .overlay { position: fixed; inset: 0; background: rgba(255,255,255,0.85); display: flex; align-items: center; justify-content: center; z-index: 10; color: #1d1d1f; font-size: 16px; font-weight: 500; display: none; }
   .blend-badge { display: inline-block; padding: 4px 10px; border-radius: 10px; background: #e3f2fd; color: #007aff; font-size: 12px; font-weight: 600; margin-top: 8px; }
+  .badge-live { display: inline-block; padding: 4px 10px; border-radius: 10px; background: #e8f5e9; color: #2e7d32; font-size: 12px; font-weight: 600; }
+  .val-note { font-size: 11px; color: #6e6e73; margin-top: 8px; }
 </style>
 </head>
 <body>
@@ -79,8 +81,22 @@
         <div class="control">
           <label style="margin-left:8px"><input type="checkbox" id="chkComposition" class="chk"> Use ore composition</label>
         </div>
+        <div class="control">
+          <label>Valuation basis</label>
+          <select id="selBasis">
+            <option value="raw">Raw ore</option>
+            <option value="minerals">Reprocessed minerals</option>
+            <option value="compressed">Compressed (market)</option>
+          </select>
+        </div>
+        <div class="control">
+          <label>Reprocessing yield %</label>
+          <input type="number" id="inpYield" value="50" min="1" max="100" step="0.5" title="Station base is 50% — Reprocessing (3%/lvl) and Ore Processing (2%/lvl) skills multiply it; Upwell structures go higher.">
+        </div>
         <div class="btn-row">
           <button class="btn btn-primary" id="btnAddRow">+ Add fleet row</button>
+          <button class="btn" id="btnLive">Pull live prices (ESI)</button>
+          <span id="liveBadge" class="badge-live" style="display:none;"></span>
         </div>
       </div>
     </div>
@@ -124,6 +140,24 @@
     </div>
   </div>
 
+  <!-- Valuation card -->
+  <div class="card" id="valuationCard">
+    <div class="card-header">Ore Valuation — isk per m³ by form</div>
+    <div class="card-body">
+      <div class="table-wrap">
+        <table class="fleet-table">
+          <thead>
+            <tr>
+              <th>Ore</th><th>Raw ore</th><th>Minerals @ <span id="yieldLabel">50</span>% yield</th><th>Compressed (batch)</th>
+            </tr>
+          </thead>
+          <tbody id="valBody"></tbody>
+        </table>
+      </div>
+      <div class="val-note" id="valNote">Compressed = batch-compressed (the 100:1 hauling form; 1 unit reprocesses as one 100-unit batch). Live columns fill on "Pull live prices" — Jita sell-side via fuzzwork, ESI averages as fallback. ~est = no market price, estimated from raw. * = live price. Overrides in the composition table apply to the raw-ore basis.</div>
+    </div>
+  </div>
+
   <div class="hint" id="hint"></div>
 
   <!-- Chart -->
@@ -155,10 +189,17 @@
   const hint = document.getElementById('hint');
   const chartDom = document.getElementById('chart');
   const summary = document.getElementById('summary');
+  const selBasis = document.getElementById('selBasis');
+  const inpYield = document.getElementById('inpYield');
+  const btnLive = document.getElementById('btnLive');
+  const liveBadge = document.getElementById('liveBadge');
+  const valBody = document.getElementById('valBody');
+  const yieldLabel = document.getElementById('yieldLabel');
 
   let myChart = null;
   let fleetRows = []; // [{booster, miner, n}]
   let compRows = [];  // [{ore, ratio, iskOverride}]
+  let liveStore = null; // { ts, prices: {name: isk} } — ores, "Compressed X", minerals
 
   const CALC = window.EVE_MINING_CALC;
 
@@ -172,24 +213,42 @@
     });
   }
 
+  function currentCtx() {
+    return {
+      basis: selBasis.value,
+      yieldPct: parseFloat(inpYield.value) || 50,
+      livePrices: liveStore ? liveStore.prices : null,
+      mineralPrices: liveStore ? liveStore.prices : null,
+    };
+  }
+
+  function basisShortLabel() {
+    const ctx = currentCtx();
+    if (ctx.basis === 'minerals') return 'minerals @ ' + ctx.yieldPct + '%';
+    if (ctx.basis === 'compressed') return 'compressed (market)';
+    return 'raw ore';
+  }
+
   function currentIskPerM3() {
+    const ctx = currentCtx();
     if (chkComp.checked) {
-      const b = CALC.blendComposition(compRows);
+      const b = CALC.blendComposition(compRows, ctx);
       return b ? b.avgIskPerM3 : 0;
     }
     const v = parseFloat(inpIsk.value);
     if (!isNaN(v)) return v;
     const o = CALC.ORES.find(x => x.name === selOre.value);
-    return o ? o.avg_isk_m3 : 0;
+    return o ? CALC.basisValuePerM3({ ore: o.name, iskOverride: '' }, ctx) : 0;
   }
 
   function updateBlendDisplay() {
-    const b = CALC.blendComposition(compRows);
+    const ctx = currentCtx();
+    const b = CALC.blendComposition(compRows, ctx);
     if (!b || compRows.length === 0) {
       blendDisplay.textContent = 'Blended: — isk/m³';
       return;
     }
-    blendDisplay.textContent = 'Blended: ' + b.avgIskPerM3.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' isk/m³';
+    blendDisplay.textContent = 'Blended: ' + b.avgIskPerM3.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' isk/m³ · ' + basisShortLabel();
   }
 
   function addFleetRow(booster, miner, n) {
@@ -313,7 +372,7 @@
   function updateCompCells() {
     compRows.forEach(c => {
       if (!c.refs || !c.refs.weightedTd.isConnected) return;
-      const isk = CALC.effectiveIskPerM3(c);
+      const isk = CALC.basisValuePerM3(c, currentCtx());
       const weighted = (parseFloat(c.ratio) || 0) * isk;
       c.refs.weightedTd.textContent = isFinite(weighted)
         ? weighted.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })
@@ -354,6 +413,12 @@
         lineWidth: 2,
         itemStyle: { color: colors[i % colors.length] },
         markLine: sp.pb !== null ? { silent: true, symbol: 'none', label: { show: false }, data: [{ xAxis: sp.pb, lineStyle: { type: 'dashed' } }] } : { silent: true, data: [] },
+        markPoint: sp.pb !== null ? {
+          silent: true, symbol: 'circle', symbolSize: 9,
+          itemStyle: { color: colors[i % colors.length], borderColor: '#fff', borderWidth: 1.5 },
+          label: { show: true, position: 'top', distance: 6, formatter: sp.pb.toFixed(0) + 'm', fontSize: 11, color: colors[i % colors.length] },
+          data: [{ coord: [sp.pb, 0] }],
+        } : undefined,
       });
     });
 
@@ -386,12 +451,19 @@
         lineWidth: 3,
         itemStyle: { color: '#000' },
         markLine: pbFinite ? { silent: true, symbol: 'none', data: [{ xAxis: pb, label: { formatter: 'combined pb ' + pb.toFixed(0) + 'm', position: 'end' }, lineStyle: { type: 'dashed', width: 2 } }] } : { silent: true, data: [] },
+        markPoint: pbFinite ? {
+          silent: true, symbol: 'circle', symbolSize: 10,
+          itemStyle: { color: '#000', borderColor: '#fff', borderWidth: 2 },
+          label: { show: true, position: 'bottom', distance: 6, formatter: pb.toFixed(0) + 'm', fontSize: 11, fontWeight: 'bold', color: '#000' },
+          data: [{ coord: [pb, 0] }],
+        } : undefined,
       });
     }
 
     renderChart(series, xMax, isk, withMsi, totalCost, totalRate, pbCombined);
     updateFleetCells();
     updateCompCells();
+    updateValuationCells();
     renderSummary(totalCost, totalRate, pbCombined, isk);
   }
 
@@ -403,9 +475,12 @@
     const yBot = Math.min(0, ...allY);
     const msiLabel = withMsi ? ' (MSI active)' : '';
     const compLabel = chkComp.checked ? ' (composition)' : '';
+    const ctxNow = currentCtx();
+    const basisLabel = ctxNow.basis === 'minerals' ? ' (minerals @ ' + ctxNow.yieldPct + '%)'
+      : ctxNow.basis === 'compressed' ? ' (compressed)' : '';
 
     myChart.setOption({
-      title: { text: 'Mining Fleet Payback' + msiLabel + compLabel, left: 'center', textStyle: { fontSize: 16 } },
+      title: { text: 'Mining Fleet Payback' + msiLabel + compLabel + basisLabel, left: 'center', textStyle: { fontSize: 16 } },
       tooltip: {
         trigger: 'axis',
         formatter: function(params) {
@@ -440,8 +515,124 @@
     summary.innerHTML =
       '<div class="summary-item"><div class="lbl">Fleet cost</div><div class="val">' + totalCostM.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' M ISK</div></div>' +
       '<div class="summary-item"><div class="lbl">Mining rate</div><div class="val">' + totalRate.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + ' m³/s</div></div>' +
-      '<div class="summary-item"><div class="lbl">Ore value' + compText + '</div><div class="val">' + isk.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' isk/m³</div></div>' +
+      '<div class="summary-item"><div class="lbl">Ore value' + compText + ' · ' + basisShortLabel() + '</div><div class="val">' + isk.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + ' isk/m³</div></div>' +
       '<div class="summary-item"><div class="lbl">Combined payback</div><div class="val">' + (isFinite(pbCombined) ? pbCombined.toFixed(0) + ' min' : 'never') + '</div></div>';
+  }
+
+  // ---- Ore valuation panel ----
+  const valRefs = {}; // ore name -> {rawTd, minTd, compTd}
+  function fmtIsk(v) {
+    return isFinite(v) ? v.toLocaleString(undefined, { maximumFractionDigits: 0 }) : '–';
+  }
+
+  function renderValuationTable() {
+    valBody.innerHTML = '';
+    CALC.ORES.forEach(o => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = '<td>' + o.name + '</td><td></td><td></td><td></td>';
+      const tds = tr.querySelectorAll('td');
+      valRefs[o.name] = { rawTd: tds[1], minTd: tds[2], compTd: tds[3] };
+      valBody.appendChild(tr);
+    });
+    updateValuationCells();
+  }
+
+  function updateValuationCells() {
+    const ctx = currentCtx();
+    const hasLive = !!(ctx.livePrices && Object.keys(ctx.livePrices).length);
+    for (const o of CALC.ORES) {
+      const r = valRefs[o.name];
+      if (!r || !r.rawTd.isConnected) continue;
+      const raw = CALC.effectiveIskPerM3({ ore: o.name, iskOverride: '' }, ctx);
+      r.rawTd.textContent = fmtIsk(raw) + (hasLive && isFinite(ctx.livePrices[o.name]) ? ' *' : '');
+      if (CALC.ORE_MINERALS_PER_BATCH[o.name] === null) {
+        r.minTd.textContent = 'random content';
+      } else {
+        const mv = CALC.mineralValuePerM3(o.name, ctx.yieldPct, ctx.mineralPrices);
+        r.minTd.textContent = isFinite(mv) ? fmtIsk(mv) : '–';
+      }
+      const cv = CALC.compressedIskPerM3(o.name, ctx.livePrices);
+      if (isFinite(cv)) r.compTd.textContent = fmtIsk(cv);
+      else {
+        const est = CALC.compressedEstimatePerM3(o.name, raw);
+        r.compTd.textContent = isFinite(est) ? '~' + fmtIsk(est) + ' (est)' : '–';
+      }
+    }
+    yieldLabel.textContent = ctx.yieldPct;
+  }
+
+  function applyLive() {
+    if (liveStore && liveStore.prices) {
+      const t = new Date(liveStore.ts).toISOString().slice(11, 16);
+      liveBadge.textContent = 'Live prices · ' + (liveStore.source || 'ESI') + ' · ' + t + ' UTC';
+      liveBadge.style.display = 'inline-block';
+    } else {
+      liveBadge.style.display = 'none';
+    }
+    updateValuationCells();
+    compute();
+  }
+
+  async function fetchLivePrices() {
+    btnLive.disabled = true;
+    showStatus('Fetching live prices…');
+    const allIds = [];
+    for (const [name, tid] of Object.entries(CALC.ORE_TYPE_IDS)) allIds.push({ name, tid, kind: 'ore' });
+    for (const [name, tid] of Object.entries(CALC.BATCH_COMPRESSED_TYPE_IDS)) allIds.push({ name: 'Batch Compressed ' + name, tid, kind: 'batch' });
+    for (const [name, tid] of Object.entries(CALC.MINERALS)) allIds.push({ name, tid, kind: 'mineral' });
+    // Raw ore quotes are PER UNIT — convert to isk/m^3 with the ore's unit volume. Minerals and
+    // batch-compressed prices are used per-unit (mineralValuePerM3 / batch volume handle the rest).
+    const toPerM3 = (entry, p) => entry.kind === 'ore'
+      ? p / (CALC.oreByName(entry.name)?.volume_m3 || 1)
+      : p;
+    let prices = null, srcLabel = '';
+    // 1) Fuzzwork Jita aggregates — sell-side percentile (outlier-trimmed), the realistic listed price.
+    try {
+      const qs = allIds.map(x => x.tid).join(',');
+      const res = await fetch('https://market.fuzzwork.co.uk/aggregates/?station=60003760&types=' + qs);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const d = await res.json();
+      prices = {};
+      for (const entry of allIds) {
+        const e = d[String(entry.tid)] ?? d[entry.tid];
+        const q = e && e.sell && isFinite(e.sell.percentile) ? e.sell.percentile : NaN;
+        const p = toPerM3(entry, q);
+        if (isFinite(p) && p > 0) prices[entry.name] = p;
+      }
+      if (Object.keys(prices).length < 5) throw new Error('thin fuzzwork response');
+      srcLabel = 'Jita sell-side · fuzzwork';
+    } catch (eFw) {
+      // 2) ESI all-region averages as fallback (cruder — thin types can be stale)
+      try {
+        const res = await fetch('https://esi.evetech.net/latest/markets/prices/');
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const all = await res.json();
+        const byId = new Map();
+        for (const x of all) {
+          const p = isFinite(x.average_price) ? x.average_price : x.adjusted_price;
+          if (isFinite(p)) byId.set(x.type_id, p);
+        }
+        prices = {};
+        for (const entry of allIds) {
+          const q = byId.get(entry.tid);
+          const p = isFinite(q) ? toPerM3(entry, q) : NaN;
+          if (isFinite(p) && p > 0) prices[entry.name] = p;
+        }
+        srcLabel = 'ESI averages';
+      } catch (eEsi) {
+        showStatus('Live prices failed: fuzzwork (' + eFw.message + ') and ESI (' + eEsi.message + ').');
+        btnLive.disabled = false;
+        return;
+      }
+    }
+    const nOre = CALC.ORES.filter(o => isFinite(prices[o.name])).length;
+    const nComp = CALC.ORES.filter(o => isFinite(prices['Batch Compressed ' + o.name])).length;
+    const nMin = Object.keys(CALC.MINERALS).filter(m => isFinite(prices[m])).length;
+    liveStore = { ts: Date.now(), source: srcLabel, prices };
+    try { localStorage.setItem('emp_live_prices', JSON.stringify(liveStore)); } catch (e) { /* private mode */ }
+    applyLive();
+    showStatus('Live prices: ' + nOre + ' ores, ' + nComp + ' batch-compressed, ' + nMin + ' minerals (' + srcLabel + ').');
+    btnLive.disabled = false;
   }
 
   function showStatus(msg) { status.textContent = msg; }
@@ -449,6 +640,7 @@
 
   // Wire up controls
   oreOptions(selOre);
+  renderValuationTable();
   compositionCard.style.display = chkComp.checked ? 'block' : 'none';
   inpIsk.addEventListener('input', compute);
   chkMsi.addEventListener('change', compute);
@@ -460,15 +652,32 @@
   selOre.addEventListener('change', () => { if (!chkComp.checked) inpIsk.value = ''; compute(); });
   btnAdd.addEventListener('click', () => addFleetRow());
   btnAddComp.addEventListener('click', () => addCompRow());
+  btnLive.addEventListener('click', fetchLivePrices);
+  selBasis.addEventListener('change', () => {
+    try { localStorage.setItem('emp_basis', selBasis.value); } catch (e) { /* private mode */ }
+    compute();
+  });
+  inpYield.addEventListener('input', () => {
+    try { localStorage.setItem('emp_yield', inpYield.value); } catch (e) { /* private mode */ }
+    updateValuationCells();
+    compute();
+  });
 
   // Seed
   addFleetRow('Porpoise', 'Covetor', 6);
   addCompRow('Gneiss', 60);
   addCompRow('Dark Ochre', 40);
 
+  // Restore persisted preferences + last live-price pull
+  try { const b = localStorage.getItem('emp_basis'); if (b) selBasis.value = b; } catch (e) { /* private mode */ }
+  try { const y = localStorage.getItem('emp_yield'); if (y) inpYield.value = y; } catch (e) { /* private mode */ }
+  try { const s = localStorage.getItem('emp_live_prices'); if (s) liveStore = JSON.parse(s); } catch (e) { /* private mode */ }
+
   compute();
   showOverlay(false);
-  showStatus('Ready. ' + CALC.ORES.length + ' ores × ' + CALC.BOOSTERS.length + ' boosters × ' + CALC.MINERS.length + ' miners.');
+  applyLive();
+  showStatus('Ready. ' + CALC.ORES.length + ' ores × ' + CALC.BOOSTERS.length + ' boosters × ' + CALC.MINERS.length + ' miners.'
+    + (liveStore ? ' Live prices from ' + new Date(liveStore.ts).toISOString().slice(11, 16) + ' UTC.' : ''));
 })();
 </script>
 </body>
