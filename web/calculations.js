@@ -92,11 +92,18 @@ function asymptoticEfficiency(booster, miner) {
   return MINING_RATE[rateKey(booster, miner)] / MINER_COST[miner];
 }
 
-// Combined fleet (multiple rows): total cost / total rate
+// Combined fleet (multiple rows): total cost / total rate.
+// Boosters are shared across rows (one Porpoise boosts any number of miners),
+// so each distinct booster type is counted exactly once.
 function combinedCost(rows) {
   // rows: [{booster, miner, n}]
+  const boosters = new Set();
   let total = 0;
-  for (const r of rows) total += fleetCost(r.booster, r.miner, r.n);
+  for (const r of rows) {
+    boosters.add(r.booster);
+    total += r.n * MINER_COST[r.miner] * 1e6; // ISK
+  }
+  for (const b of boosters) total += BOOSTER_COST[b] * 1e6; // ISK
   return total;
 }
 
@@ -124,7 +131,16 @@ function oreByName(name) {
 
 // Ore Composition mixer: weighted average isk/m^3 across ore types.
 // composition: [{ore, ratio, iskOverride?}]  ratio = relative share (e.g. 60 for 60%)
+// An iskOverride that is empty/null/NaN falls back to the ore's average price.
 // Returns {avgIskPerM3, totalRatio} or null if empty/invalid.
+function effectiveIskPerM3(entry) {
+  const ore = oreByName(entry.ore);
+  const v = (entry.iskOverride === '' || entry.iskOverride == null)
+    ? NaN
+    : parseFloat(entry.iskOverride);
+  return isFinite(v) ? v : (ore ? ore.avg_isk_m3 : 0);
+}
+
 function blendComposition(composition) {
   if (!composition || composition.length === 0) return null;
   let weightedSum = 0;
@@ -132,9 +148,7 @@ function blendComposition(composition) {
   for (const c of composition) {
     const r = parseFloat(c.ratio) || 0;
     if (r <= 0) continue;
-    const ore = oreByName(c.ore);
-    const isk = c.iskOverride != null ? parseFloat(c.iskOverride) : (ore ? ore.avg_isk_m3 : 0);
-    weightedSum += r * isk;
+    weightedSum += r * effectiveIskPerM3(c);
     totalRatio += r;
   }
   if (totalRatio <= 0) return null;
@@ -190,6 +204,6 @@ if (typeof window !== "undefined") {
     msiBreakEvenIskPerM3, asymptoticEfficiency,
     combinedCost, combinedRate, combinedPaybackSeconds,
     configName, seriesPoints, round2,
-    oreByName, blendComposition, compositionPaybackMinutes,
+    oreByName, effectiveIskPerM3, blendComposition, compositionPaybackMinutes,
   };
 }

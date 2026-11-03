@@ -56,7 +56,7 @@
 </style>
 </head>
 <body>
-<header>EVE Mining Fleet — Payback Calculator</header>
+<header>EVE Mining Fleet — Payback Calculator<span class="status" id="status"></span></header>
 
 <div class="container">
 
@@ -206,22 +206,20 @@
 
   function renderFleetTable() {
     fleetBody.innerHTML = '';
-    const isk = currentIskPerM3();
-    const withMsi = chkMsi.checked;
     fleetRows.forEach((r, i) => {
       const tr = document.createElement('tr');
-      const costM = CALC.fleetCost(r.booster, r.miner, r.n) / 1e6;
-      const rate = CALC.fleetRate(r.booster, r.miner, r.n);
-      const pb = CALC.paybackMinutes(r.booster, r.miner, r.n, isk, withMsi);
 
       tr.innerHTML =
         '<td><select></select></td>' +
         '<td><select></select></td>' +
         '<td><input type="number" value="' + r.n + '" min="1"></td>' +
-        '<td>' + costM.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 }) + '</td>' +
-        '<td>' + rate.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '</td>' +
-        '<td>' + (isFinite(pb) ? pb.toFixed(0) + 'm' : '∞') + '</td>' +
+        '<td></td>' +
+        '<td></td>' +
+        '<td></td>' +
         '<td><button class="btn btn-danger" style="padding:2px 8px;">×</button></td>';
+
+      const tds = tr.querySelectorAll('td');
+      r.refs = { costTd: tds[3], rateTd: tds[4], pbTd: tds[5] };
 
       const bs = tr.querySelectorAll('select')[0];
       const ms = tr.querySelectorAll('select')[1];
@@ -244,6 +242,22 @@
 
       fleetBody.appendChild(tr);
     });
+    updateFleetCells();
+  }
+
+  // Update derived cells in place (keeps input focus while typing)
+  function updateFleetCells() {
+    const isk = currentIskPerM3();
+    const withMsi = chkMsi.checked;
+    fleetRows.forEach(r => {
+      if (!r.refs || !r.refs.costTd.isConnected) return;
+      const costM = CALC.fleetCost(r.booster, r.miner, r.n) / 1e6;
+      const rate = CALC.fleetRate(r.booster, r.miner, r.n);
+      const pb = CALC.paybackMinutes(r.booster, r.miner, r.n, isk, withMsi);
+      r.refs.costTd.textContent = costM.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+      r.refs.rateTd.textContent = rate.toLocaleString(undefined, { minimumFractionDigits: 1, maximumFractionDigits: 1 });
+      r.refs.pbTd.textContent = isFinite(pb) ? pb.toFixed(0) + 'm' : '∞';
+    });
   }
 
   function addCompRow(ore, ratio, iskOverride) {
@@ -262,8 +276,7 @@
     compBody.innerHTML = '';
     compRows.forEach((c, i) => {
       const tr = document.createElement('tr');
-      const ore = CALC.oreByName(c.ore);
-      const isk = c.iskOverride != null ? parseFloat(c.iskOverride) : (ore ? ore.avg_isk_m3 : 0);
+      const isk = CALC.effectiveIskPerM3(c);
       const weighted = (parseFloat(c.ratio) || 0) * isk;
 
       tr.innerHTML =
@@ -272,6 +285,9 @@
         '<td><input type="number" value="' + (c.iskOverride || '') + '" step="0.1" placeholder="auto"></td>' +
         '<td>' + (isFinite(isk) ? isk.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 }) : '–') + '</td>' +
         '<td><button class="btn btn-danger" style="padding:2px 8px;">×</button></td>';
+
+      const tds = tr.querySelectorAll('td');
+      c.refs = { weightedTd: tds[3] };
 
       const os = tr.querySelector('select');
       const ri = tr.querySelectorAll('input')[0];
@@ -289,6 +305,19 @@
       rb.addEventListener('click', () => { removeCompRow(i); });
 
       compBody.appendChild(tr);
+    });
+    updateCompCells();
+  }
+
+  // Update weighted cells + blend badge in place (keeps input focus while typing)
+  function updateCompCells() {
+    compRows.forEach(c => {
+      if (!c.refs || !c.refs.weightedTd.isConnected) return;
+      const isk = CALC.effectiveIskPerM3(c);
+      const weighted = (parseFloat(c.ratio) || 0) * isk;
+      c.refs.weightedTd.textContent = isFinite(weighted)
+        ? weighted.toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 0 })
+        : '–';
     });
     updateBlendDisplay();
   }
@@ -324,7 +353,7 @@
         showSymbol: false,
         lineWidth: 2,
         itemStyle: { color: colors[i % colors.length] },
-        markLine: sp.pb !== null ? { silent: true, data: [{ xAxis: sp.pb, label: { formatter: 'pb ' + sp.pb.toFixed(0) + 'm', position: 'insideStartTop' }, lineStyle: { type: 'dashed' } }] } : { silent: true, data: [] },
+        markLine: sp.pb !== null ? { silent: true, symbol: 'none', label: { show: false }, data: [{ xAxis: sp.pb, lineStyle: { type: 'dashed' } }] } : { silent: true, data: [] },
       });
     });
 
@@ -356,20 +385,22 @@
         showSymbol: false,
         lineWidth: 3,
         itemStyle: { color: '#000' },
-        markLine: pbFinite ? { silent: true, data: [{ xAxis: pb, label: { formatter: 'combined pb ' + pb.toFixed(0) + 'm', position: 'insideStartTop' }, lineStyle: { type: 'dashed', width: 2 } }] } : { silent: true, data: [] },
+        markLine: pbFinite ? { silent: true, symbol: 'none', data: [{ xAxis: pb, label: { formatter: 'combined pb ' + pb.toFixed(0) + 'm', position: 'end' }, lineStyle: { type: 'dashed', width: 2 } }] } : { silent: true, data: [] },
       });
     }
 
     renderChart(series, xMax, isk, withMsi, totalCost, totalRate, pbCombined);
-    renderFleetTable();
-    renderCompTable();
+    updateFleetCells();
+    updateCompCells();
     renderSummary(totalCost, totalRate, pbCombined, isk);
   }
 
   function renderChart(series, xMax, isk, withMsi, totalCostM, totalRate, pbCombined) {
     if (!myChart) myChart = echarts.init(chartDom);
 
-    const yMax = Math.max(0, ...series.flatMap(s => s.data.map(p => p[1])), totalCostM * 0.1) * 1.12;
+    const allY = series.flatMap(s => s.data.map(p => p[1]));
+    const yTop = Math.max(0, ...allY, totalCostM * 0.1);
+    const yBot = Math.min(0, ...allY);
     const msiLabel = withMsi ? ' (MSI active)' : '';
     const compLabel = chkComp.checked ? ' (composition)' : '';
 
@@ -379,10 +410,9 @@
         trigger: 'axis',
         formatter: function(params) {
           if (!params || params.length === 0) return '';
-          const p = params[0];
-          const t = p.value[0].toFixed(0) + ' min';
-          const profit = p.value[1].toFixed(1) + ' M ISK';
-          return p.seriesName + '<br/>' + t + '<br/>Profit: ' + profit;
+          const t = params[0].value[0].toFixed(0) + ' min';
+          const lines = params.map(p => p.marker + ' ' + p.seriesName + ': ' + p.value[1].toFixed(1) + ' M ISK');
+          return t + '<br/>' + lines.join('<br/>');
         }
       },
       grid: { left: 70, right: 40, top: 60, bottom: 70 },
@@ -395,7 +425,8 @@
       yAxis: {
         name: 'Cumulative profit (M ISK)',
         nameLocation: 'center', nameGap: 50,
-        min: 0, max: yMax,
+        min: yBot < 0 ? Math.floor(yBot * 1.05) : 0,
+        max: Math.ceil(yTop * 1.12),
         splitLine: { show: true, lineStyle: { color: '#eee' } }
       },
       legend: { type: 'scroll', orient: 'horizontal', top: 30 },
