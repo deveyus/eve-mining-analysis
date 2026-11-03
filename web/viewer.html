@@ -154,6 +154,19 @@
   }
   .filter-row .count { font-size: 13px; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
   .hint { font-size: 14px; color: var(--ink-dim); padding: 0 4px; }
+
+  /* Haul paste */
+  #haulText {
+    width: 100%; min-height: 130px; resize: vertical; display: block;
+    font-family: var(--mono); font-size: 14.5px; line-height: 1.55;
+    color: var(--ink); background: #170c30;
+    border: 1px solid rgba(168, 85, 247, 0.45); border-radius: 9px; padding: 10px 12px;
+  }
+  #haulText::placeholder { color: #6d5a99; }
+  #haulText:focus {
+    outline: none; border-color: var(--neon);
+    box-shadow: 0 0 0 3px rgba(192, 132, 252, 0.25), 0 0 14px rgba(192, 132, 252, 0.35);
+  }
 </style>
 </head>
 <body>
@@ -239,6 +252,9 @@
     </div>
   </div>
 
+  <!-- Chart -->
+  <div id="chart"></div>
+
   <!-- Valuation card -->
   <div class="card" id="valuationCard">
     <div class="card-header">Ore Valuation — isk per m³ by form</div>
@@ -261,10 +277,29 @@
     </div>
   </div>
 
-  <div class="hint" id="hint"></div>
+  <!-- Haul paste card -->
+  <div class="card" id="haulCard">
+    <div class="card-header">Paste a haul</div>
+    <div class="card-body">
+      <textarea id="haulText" rows="6" spellcheck="false" placeholder="One stack per line — copy straight from the client's inventory or the survey scanner.&#10;Veldspar  12345&#10;Compressed Gneiss  400&#10;Tritanium  9,500,000"></textarea>
+      <div class="btn-row">
+        <button class="btn btn-primary" id="btnHaul">Value it</button>
+        <button class="btn" id="btnHaulClear">Clear</button>
+        <span id="haulTotal" class="blend-badge" style="display:none;"></span>
+      </div>
+      <div class="table-wrap" id="haulResult" style="display:none; margin-top:12px;">
+        <table class="fleet-table">
+          <thead>
+            <tr><th>Item</th><th>Units</th><th>m³ as pasted</th><th>ISK · <span id="haulBasisLabel">raw ore</span></th></tr>
+          </thead>
+          <tbody id="haulBody"></tbody>
+        </table>
+      </div>
+      <div class="val-note" id="haulNote" style="display:none;"></div>
+    </div>
+  </div>
 
-  <!-- Chart -->
-  <div id="chart"></div>
+  <div class="hint" id="hint"></div>
 
   <!-- Summary -->
   <div class="summary" id="summary"></div>
@@ -275,6 +310,7 @@
 
 <script src="ore-data.js"></script>
 <script src="calculations.js"></script>
+<script src="haul-parse.js"></script>
 <script src="echarts.min.js"></script>
 <script>
 (function() {
@@ -301,6 +337,15 @@
   const valFamily = document.getElementById('valFamily');
   const valCount = document.getElementById('valCount');
   const yieldLabel = document.getElementById('yieldLabel');
+  const haulText = document.getElementById('haulText');
+  const btnHaul = document.getElementById('btnHaul');
+  const btnHaulClear = document.getElementById('btnHaulClear');
+  const haulBody = document.getElementById('haulBody');
+  const haulResult = document.getElementById('haulResult');
+  const haulTotal = document.getElementById('haulTotal');
+  const haulNote = document.getElementById('haulNote');
+  const haulBasisLabel = document.getElementById('haulBasisLabel');
+  const HAUL = window.HAUL_PARSE;
 
   let myChart = null;
   let fleetRows = []; // [{booster, miner, n}]
@@ -581,6 +626,7 @@
     updateFleetCells();
     updateCompCells();
     updateValuationCells();
+    updateHaul();
     renderSummary(totalCost, totalRate, pbCombined, isk);
   }
 
@@ -728,6 +774,77 @@
     yieldLabel.textContent = ctx.yieldPct;
   }
 
+  // ---- Haul paste panel ----
+  let haulParsed = null; // { items, skipped } from the last parse
+  const HAUL_NAMES = HAUL.buildHaulNames(CALC);
+
+  // Worth of one pasted line under the current settings.
+  // Raw ore follows the basis selector (raw sell / minerals @ yield / compress-then-sell).
+  // Compressed ore can't go back to raw, so it prices at the compressed market —
+  // except under the minerals basis, where it prices as its reprocessed output.
+  // Minerals price at the mineral market.
+  function haulItemCalc(item, ctx) {
+    if (item.kind === 'mineral') {
+      const p = ctx.mineralPrices ? ctx.mineralPrices[item.key] : NaN;
+      return { m3: NaN, isk: isFinite(p) && p > 0 ? item.qty * p : NaN, est: false };
+    }
+    const ore = CALC.oreByName(item.key);
+    if (!ore) return { m3: NaN, isk: NaN, est: false };
+    const rawM3 = item.qty * ore.volume_m3; // 1 compressed unit = 1 raw unit of ore
+    if (item.kind === 'comp') {
+      if (ctx.basis === 'minerals') {
+        const mv = CALC.mineralValuePerM3(item.key, ctx.yieldPct, ctx.mineralPrices);
+        if (isFinite(mv)) return { m3: rawM3, isk: rawM3 * mv, est: false };
+      }
+      const p = CALC.compressedUnitPrice(item.key, ctx.livePrices);
+      if (isFinite(p) && p > 0) return { m3: rawM3, isk: item.qty * p, est: false };
+      const raw = CALC.effectiveIskPerM3({ ore: item.key, iskOverride: '' }, ctx);
+      return { m3: rawM3, isk: isFinite(raw) ? rawM3 * raw : NaN, est: true };
+    }
+    const perM3 = CALC.basisValuePerM3({ ore: item.key, iskOverride: '' }, ctx);
+    return { m3: rawM3, isk: isFinite(perM3) ? rawM3 * perM3 : NaN, est: false };
+  }
+
+  function updateHaul() {
+    if (!haulParsed || !haulParsed.items.length) {
+      haulResult.style.display = 'none';
+      haulTotal.style.display = 'none';
+      haulNote.style.display = 'none';
+      return;
+    }
+    const ctx = currentCtx();
+    haulBasisLabel.textContent = basisShortLabel();
+    haulBody.innerHTML = '';
+    let total = 0, anyEst = false;
+    for (const item of haulParsed.items) {
+      const v = haulItemCalc(item, ctx);
+      if (isFinite(v.isk)) total += v.isk;
+      if (v.est) anyEst = true;
+      let m3shown = NaN;
+      if (item.kind === 'comp') m3shown = item.qty * CALC.compressedUnitVolume(item.key);
+      else if (item.kind === 'ore') m3shown = v.m3;
+      const tr = document.createElement('tr');
+      tr.innerHTML =
+        '<td>' + item.disp + '</td>' +
+        '<td>' + item.qty.toLocaleString(undefined, { maximumFractionDigits: 0 }) + '</td>' +
+        '<td>' + (isFinite(m3shown) ? m3shown.toLocaleString(undefined, { maximumFractionDigits: 1 }) : '–') + '</td>' +
+        '<td>' + (v.est ? '~' : '') + (isFinite(v.isk) ? v.isk.toLocaleString(undefined, { maximumFractionDigits: 0 }) : '–') + '</td>';
+      haulBody.appendChild(tr);
+    }
+    haulTotal.textContent = 'Haul total: ' + (isFinite(total) ? total.toLocaleString(undefined, { maximumFractionDigits: 0 }) : '–') + ' isk · ' + basisShortLabel() + (anyEst ? ' · ~ = estimated' : '');
+    haulTotal.style.display = 'inline-block';
+    haulResult.style.display = '';
+    let note = 'Raw items follow the valuation basis. Compressed items can\'t go back to raw, so they price at the compressed market — unless the basis is minerals, where they price as their reprocessed output. m³ = the space the stack takes as pasted.';
+    if (haulParsed.skipped.length) note += ' Didn\'t parse: ' + haulParsed.skipped.join(' · ');
+    haulNote.textContent = note;
+    haulNote.style.display = '';
+  }
+
+  function onHaulValue() {
+    haulParsed = HAUL.parseHaulText(haulText.value, HAUL_NAMES);
+    updateHaul();
+  }
+
   function applyLive() {
     if (liveStore && liveStore.prices) {
       const t = new Date(liveStore.ts).toISOString().slice(11, 16);
@@ -821,6 +938,8 @@
   btnAdd.addEventListener('click', () => addFleetRow());
   btnAddComp.addEventListener('click', () => addCompRow());
   btnLive.addEventListener('click', fetchLivePrices);
+  btnHaul.addEventListener('click', onHaulValue);
+  btnHaulClear.addEventListener('click', () => { haulText.value = ''; haulParsed = null; updateHaul(); });
   selBasis.addEventListener('change', () => {
     try { localStorage.setItem('emp_basis', selBasis.value); } catch (e) { /* private mode */ }
     compute();
