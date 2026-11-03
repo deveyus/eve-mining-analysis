@@ -140,6 +140,34 @@
     border: 1px solid var(--line-soft);
     font-size: 13.5px; font-weight: 600; margin-top: 10px; font-variant-numeric: tabular-nums;
   }
+
+  /* Paste tools row + dialogs */
+  .tools-row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .tools-row .blend-badge { margin-top: 0; }
+  .modal-backdrop {
+    position: fixed; inset: 0; background: rgba(8, 4, 16, 0.72);
+    display: none; align-items: flex-start; justify-content: center;
+    padding: 6vh 16px 40px; z-index: 40; overflow-y: auto;
+  }
+  .modal-backdrop.open { display: flex; }
+  .modal {
+    width: min(880px, 100%);
+    background: linear-gradient(180deg, var(--panel), var(--panel-2));
+    border: 1px solid var(--line); border-radius: 16px;
+    box-shadow: 0 0 42px rgba(147, 51, 234, 0.4);
+  }
+  .modal-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 20px; border-bottom: 1px solid var(--line);
+    font-size: 16.5px; font-weight: 700; color: var(--ink-head); letter-spacing: 0.3px;
+  }
+  .modal-close {
+    background: none; border: 1px solid var(--line); color: var(--ink-dim);
+    border-radius: 8px; width: 30px; height: 30px; cursor: pointer;
+    font-size: 16px; line-height: 1; font-family: inherit;
+  }
+  .modal-close:hover { color: var(--neon-strong); border-color: var(--neon); }
+  .modal-body { padding: 18px 20px 20px; }
   .badge-live {
     display: inline-block; padding: 5px 12px; border-radius: 11px;
     background: rgba(52, 211, 153, 0.13); color: #6ee7b7;
@@ -173,6 +201,14 @@
 <header>EVE Mining Fleet — Payback Calculator<span class="status" id="status"></span></header>
 
 <div class="container">
+
+  <!-- Paste tools: the dialogs plus their glanceable results -->
+  <div class="tools-row">
+    <button class="btn" id="btnOpenBelt">Paste a belt scan</button>
+    <span id="beltBadge" class="blend-badge" style="display:none;"></span>
+    <button class="btn" id="btnOpenHaul">Paste a haul</button>
+    <span id="haulTotal" class="blend-badge" style="display:none;"></span>
+  </div>
 
   <!-- Configuration card -->
   <div class="card">
@@ -252,29 +288,6 @@
     </div>
   </div>
 
-  <!-- Belt scan card -->
-  <div class="card" id="beltCard">
-    <div class="card-header">Paste a belt scan</div>
-    <div class="card-body">
-      <textarea id="beltText" rows="6" spellcheck="false" placeholder="Survey scanner → select all → copy, one asteroid per line.&#10;Scordite  10,729  1,609 m3  168,000.00 ISK  121 km"></textarea>
-      <div class="btn-row">
-        <button class="btn btn-primary" id="btnBelt">Scan it</button>
-        <button class="btn" id="btnBeltClear">Clear</button>
-        <button class="btn" id="btnBeltToComp">Load into composition</button>
-        <span id="beltBadge" class="blend-badge" style="display:none;"></span>
-      </div>
-      <div class="table-wrap" id="beltResult" style="display:none; margin-top:12px;">
-        <table class="fleet-table">
-          <thead>
-            <tr><th>Ore</th><th>Units</th><th>m³</th><th>Share</th><th>Value · <span id="beltBasisLabel">raw ore</span></th></tr>
-          </thead>
-          <tbody id="beltBody"></tbody>
-        </table>
-      </div>
-      <div class="val-note" id="beltNote" style="display:none;"></div>
-    </div>
-  </div>
-
   <!-- Summary -->
   <div class="summary" id="summary"></div>
 
@@ -303,29 +316,54 @@
     </div>
   </div>
 
-  <!-- Haul paste card -->
-  <div class="card" id="haulCard">
-    <div class="card-header">Paste a haul</div>
-    <div class="card-body">
-      <textarea id="haulText" rows="6" spellcheck="false" placeholder="One stack per line — copy straight from the client's inventory or the survey scanner.&#10;Veldspar  12345&#10;Compressed Gneiss  400&#10;Tritanium  9,500,000"></textarea>
-      <div class="btn-row">
-        <button class="btn btn-primary" id="btnHaul">Value it</button>
-        <button class="btn" id="btnHaulClear">Clear</button>
-        <span id="haulTotal" class="blend-badge" style="display:none;"></span>
+  <div class="hint" id="hint"></div>
+
+  <!-- Belt scan modal -->
+  <div class="modal-backdrop" id="beltModal">
+    <div class="modal" role="dialog" aria-label="Paste a belt scan">
+      <div class="modal-header"><span>Paste a belt scan</span><button class="modal-close" data-close="beltModal" aria-label="Close">×</button></div>
+      <div class="modal-body">
+        <textarea id="beltText" rows="6" spellcheck="false" placeholder="Survey scanner → select all → copy, one asteroid per line.&#10;Scordite  10,729  1,609 m3  168,000.00 ISK  121 km"></textarea>
+        <div class="btn-row">
+          <button class="btn btn-primary" id="btnBelt">Scan it</button>
+          <button class="btn" id="btnBeltClear">Clear</button>
+          <button class="btn" id="btnBeltToComp">Load into composition</button>
+        </div>
+        <div class="table-wrap" id="beltResult" style="display:none; margin-top:12px;">
+          <table class="fleet-table">
+            <thead>
+              <tr><th>Ore</th><th>Units</th><th>m³</th><th>Share</th><th>Value · <span id="beltBasisLabel">raw ore</span></th></tr>
+            </thead>
+            <tbody id="beltBody"></tbody>
+          </table>
+        </div>
+        <div class="val-note" id="beltNote" style="display:none;"></div>
       </div>
-      <div class="table-wrap" id="haulResult" style="display:none; margin-top:12px;">
-        <table class="fleet-table">
-          <thead>
-            <tr><th>Item</th><th>Units</th><th>m³ as pasted</th><th>ISK · <span id="haulBasisLabel">raw ore</span></th></tr>
-          </thead>
-          <tbody id="haulBody"></tbody>
-        </table>
-      </div>
-      <div class="val-note" id="haulNote" style="display:none;"></div>
     </div>
   </div>
 
-  <div class="hint" id="hint"></div>
+  <!-- Haul paste modal -->
+  <div class="modal-backdrop" id="haulModal">
+    <div class="modal" role="dialog" aria-label="Paste a haul">
+      <div class="modal-header"><span>Paste a haul</span><button class="modal-close" data-close="haulModal" aria-label="Close">×</button></div>
+      <div class="modal-body">
+        <textarea id="haulText" rows="6" spellcheck="false" placeholder="One stack per line — copy straight from the client's inventory or the survey scanner.&#10;Veldspar  12345&#10;Compressed Gneiss  400&#10;Tritanium  9,500,000"></textarea>
+        <div class="btn-row">
+          <button class="btn btn-primary" id="btnHaul">Value it</button>
+          <button class="btn" id="btnHaulClear">Clear</button>
+        </div>
+        <div class="table-wrap" id="haulResult" style="display:none; margin-top:12px;">
+          <table class="fleet-table">
+            <thead>
+              <tr><th>Item</th><th>Units</th><th>m³ as pasted</th><th>ISK · <span id="haulBasisLabel">raw ore</span></th></tr>
+            </thead>
+            <tbody id="haulBody"></tbody>
+          </table>
+        </div>
+        <div class="val-note" id="haulNote" style="display:none;"></div>
+      </div>
+    </div>
+  </div>
 
   <div class="overlay" id="overlay">Computing…</div>
 
@@ -378,6 +416,10 @@
   const beltBadge = document.getElementById('beltBadge');
   const beltNote = document.getElementById('beltNote');
   const beltBasisLabel = document.getElementById('beltBasisLabel');
+  const btnOpenBelt = document.getElementById('btnOpenBelt');
+  const btnOpenHaul = document.getElementById('btnOpenHaul');
+  const beltModal = document.getElementById('beltModal');
+  const haulModal = document.getElementById('haulModal');
 
   let myChart = null;
   let fleetRows = []; // [{booster, miner, n}]
@@ -988,6 +1030,7 @@
     chkComp.checked = true;
     compositionCard.style.display = 'block';
     inpIsk.disabled = true;
+    closeModal(beltModal);
     renderCompTable();
     compute();
     compositionCard.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1091,6 +1134,21 @@
   btnBelt.addEventListener('click', onBeltScan);
   btnBeltClear.addEventListener('click', () => { beltText.value = ''; beltParsed = null; beltRocks = 0; compute(); });
   btnBeltToComp.addEventListener('click', loadBeltIntoComp);
+
+  // Paste dialogs: open from the tools row, close on ×, backdrop click, or Esc.
+  function openModal(m, focusEl) {
+    m.classList.add('open');
+    if (focusEl) setTimeout(() => focusEl.focus(), 60);
+  }
+  function closeModal(m) { m.classList.remove('open'); }
+  btnOpenBelt.addEventListener('click', () => openModal(beltModal, beltText));
+  btnOpenHaul.addEventListener('click', () => openModal(haulModal, haulText));
+  document.querySelectorAll('.modal-close').forEach(b =>
+    b.addEventListener('click', () => closeModal(document.getElementById(b.dataset.close))));
+  [beltModal, haulModal].forEach(m => m.addEventListener('click', e => { if (e.target === m) closeModal(m); }));
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { closeModal(beltModal); closeModal(haulModal); }
+  });
   selBasis.addEventListener('change', () => {
     try { localStorage.setItem('emp_basis', selBasis.value); } catch (e) { /* private mode */ }
     compute();
